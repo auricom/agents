@@ -1,0 +1,7 @@
+{
+  "source": "openclaw/skills/skills/botond-rackhost/ansible-skill",
+  "sourceType": "git",
+  "repoUrl": "https://github.com/openclaw/skills",
+  "subpath": "skills/botond-rackhost/ansible-skill",
+  "installedAt": "2026-02-19T08:42:15.590Z"
+}
