@@ -1,2 +1,7 @@
+[env]
+_.python.venv = { path = ".venv" }
+
 [tools]
 node = "latest"
+python = "latest"
+uv = "latest"
