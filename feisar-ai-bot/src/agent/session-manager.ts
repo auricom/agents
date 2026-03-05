@@ -7,6 +7,12 @@ import {
   SessionManager,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import {
+  recordPiSessionAbort,
+  recordPiSessionGet,
+  recordPiSessionIndexIoError,
+  setPiSessionsActive,
+} from "../metrics/pi-agent-metrics.js";
 import type { AppConfig } from "../types.js";
 import { logger } from "../utils/logger.js";
 
@@ -21,16 +27,19 @@ export class PiSessionManager {
 
   constructor(private readonly cfg: AppConfig) {
     this.indexPath = path.join(cfg.sessionDir, "session-index.json");
+    setPiSessionsActive(0);
   }
 
   async getSession(chatId: number, writable: boolean, repoName: string, repoPath: string): Promise<SessionEntry> {
     const key = `${chatId}:${writable ? "rw" : "ro"}:${repoName}`;
     const existing = this.sessions.get(key);
     if (existing) {
+      recordPiSessionGet(writable ? "rw" : "ro", "hit");
       logger.debug("session cache hit", { key });
       return existing;
     }
 
+    recordPiSessionGet(writable ? "rw" : "ro", "miss");
     logger.debug("session cache miss", { key });
 
     const tools = writable ? createCodingTools(repoPath) : createReadOnlyTools(repoPath);
@@ -57,6 +66,7 @@ export class PiSessionManager {
 
     const entry: SessionEntry = { session, busy: false };
     this.sessions.set(key, entry);
+    setPiSessionsActive(this.sessions.size);
     return entry;
   }
 
@@ -70,6 +80,7 @@ export class PiSessionManager {
         aborted = true;
       }
     }
+    recordPiSessionAbort(aborted ? "aborted" : "no-active");
     logger.debug("abort result", { chatId, aborted });
     return aborted;
   }
@@ -78,13 +89,21 @@ export class PiSessionManager {
     try {
       const data = await fs.readFile(this.indexPath, "utf8");
       return JSON.parse(data) as Record<string, string>;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        recordPiSessionIndexIoError("read");
+      }
       return {};
     }
   }
 
   private async writeIndex(index: Record<string, string>): Promise<void> {
-    await fs.mkdir(path.dirname(this.indexPath), { recursive: true });
-    await fs.writeFile(this.indexPath, JSON.stringify(index, null, 2));
+    try {
+      await fs.mkdir(path.dirname(this.indexPath), { recursive: true });
+      await fs.writeFile(this.indexPath, JSON.stringify(index, null, 2));
+    } catch (error) {
+      recordPiSessionIndexIoError("write");
+      throw error;
+    }
   }
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunMode } from "../types.js";
+import { recordPiAgentsMdLoadFailure, recordPiRun, type PiRunResult } from "../metrics/pi-agent-metrics.js";
 import { logger } from "../utils/logger.js";
 import { PiSessionManager } from "./session-manager.js";
 
@@ -9,30 +10,48 @@ export class PiRunner {
 
   async run(chatId: number, mode: RunMode, task: string, repoName: string, repoPath: string): Promise<string> {
     const writable = mode === "apply";
+    const startedAtNs = process.hrtime.bigint();
+    let result: PiRunResult = "error";
+    let entry: Awaited<ReturnType<PiSessionManager["getSession"]>> | null = null;
+
     logger.debug("pi run start", { chatId, mode, writable, repoName });
-    const entry = await this.sessions.getSession(chatId, writable, repoName, repoPath);
 
-    if (entry.busy) {
-      logger.debug("pi session busy", { chatId, mode });
-      throw new Error("Session is busy. Use /abort or wait for completion.");
-    }
-
-    entry.busy = true;
     try {
+      entry = await this.sessions.getSession(chatId, writable, repoName, repoPath);
+
+      if (entry.busy) {
+        result = "busy";
+        logger.debug("pi session busy", { chatId, mode });
+        throw new Error("Session is busy. Use /abort or wait for completion.");
+      }
+
+      entry.busy = true;
       const prompt = await this.buildPrompt(mode, task, repoName, repoPath);
       logger.debug("pi prompt dispatch", { chatId, mode, promptLength: prompt.length });
       await entry.session.prompt(prompt);
       const output = entry.session.getLastAssistantText();
       if (!output) {
+        result = "empty-output";
         const msgCount = entry.session.messages.length;
         const roles = entry.session.messages.map((m: any) => m.role ?? m.type ?? "unknown").join(",");
         logger.warn("pi run: no assistant text found", { chatId, mode, msgCount, roles });
         return "Task completed, but no assistant response was produced. Please try again or rephrase your request.";
       }
+
+      result = "success";
       logger.debug("pi run complete", { chatId, mode, outputLength: output.length });
       return output;
+    } catch (error) {
+      if (result !== "busy") {
+        result = isAbortError(error) ? "aborted" : "error";
+      }
+      throw error;
     } finally {
-      entry.busy = false;
+      if (entry?.busy) {
+        entry.busy = false;
+      }
+      const durationSeconds = Number(process.hrtime.bigint() - startedAtNs) / 1_000_000_000;
+      recordPiRun(mode, result, durationSeconds);
     }
   }
 
@@ -88,6 +107,7 @@ export class PiRunner {
       }
       return trimmed;
     } catch (error) {
+      recordPiAgentsMdLoadFailure();
       logger.error("failed to load AGENTS.md for repository prompt construction", {
         repoPath,
         agentsPath,
@@ -96,4 +116,9 @@ export class PiRunner {
       throw new Error(`AGENTS.md is required at repository root: ${agentsPath}`);
     }
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  const message = (error as Error)?.message ?? "";
+  return /abort/i.test(message);
 }
