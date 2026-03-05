@@ -1,0 +1,1 @@
+/home/linuxbrew/.linuxbrew/opt/peon-ping/libexec/skills/peon-ping-log/SKILL.md
