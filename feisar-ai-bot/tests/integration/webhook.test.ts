@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, type TelegramClient } from "../../src/app.js";
+import { renderMetrics, resetMetricsRegistry } from "../../src/metrics/registry.js";
 import type { AppConfig } from "../../src/types.js";
 
 let updateIdSeq = 1000;
@@ -92,6 +93,10 @@ async function waitForTaskHistoryEntry(sessionDir: string, needle: string): Prom
 }
 
 describe("telegram webhook integration", () => {
+  beforeEach(() => {
+    resetMetricsRegistry();
+  });
+
   it("rejects invalid route token", async () => {
     const telegram = mockTelegram();
     const { app } = createApp(testConfig(), { telegram });
@@ -391,5 +396,23 @@ describe("telegram webhook integration", () => {
       expect.stringContaining("deploy app one"),
       "HTML",
     );
+  });
+
+  it("records main app http metrics with templated route labels", async () => {
+    const telegram = mockTelegram();
+    const { app } = createApp(testConfig(), { telegram });
+
+    await request(app).get("/healthz").expect(200);
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/status"))
+      .expect(200);
+
+    const metrics = await renderMetrics();
+    expect(metrics).toContain('http_requests_total{method="GET",route="/healthz",status_code="200"} 1');
+    expect(metrics).toContain('http_requests_total{method="POST",route="/telegram/webhook/:token",status_code="200"} 1');
+    expect(metrics).toContain('http_request_duration_seconds_count{method="GET",route="/healthz",status_code="200"} 1');
   });
 });

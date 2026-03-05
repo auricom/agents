@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { createApp } from "./app.js";
 import { SuperpowersSkillsSync } from "./skills/superpowers-sync.js";
 import { logger } from "./utils/logger.js";
+import { metricsContentType, renderMetrics } from "./metrics/registry.js";
 import { registerHealthRoutes } from "./web/health.js";
 
 const cfg = loadConfig();
@@ -60,9 +61,9 @@ async function bootstrap(): Promise<void> {
 
   const metricsApp = express();
   registerHealthRoutes(metricsApp);
-  metricsApp.get("/metrics", (_req, res) => {
-    res.type("text/plain; version=0.0.4; charset=utf-8");
-    res.send(superpowersSync.renderPrometheusMetrics());
+  metricsApp.get("/metrics", async (_req, res) => {
+    res.type(metricsContentType);
+    res.send(await renderMetrics());
   });
 
   metricsApp.listen(cfg.metricsPort, () => {

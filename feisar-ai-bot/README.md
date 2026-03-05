@@ -102,6 +102,10 @@ npm run check:logging
 - On startup, the service clones `https://github.com/obra/superpowers.git` into `~/.pi/agent/skills` if missing.
 - Every 24 hours, it fetches and hard-resets to `origin/main` to keep skills fresh.
 - A separate metrics server runs on `METRICS_PORT` and exposes Prometheus metrics at `/metrics`.
+- Main app route metrics are exported as:
+  - `http_requests_total{method,route,status_code}`
+  - `http_request_duration_seconds{method,route,status_code}`
+- Route labels are templated (for example, `/telegram/webhook/:token`) and never include raw URL paths.
 - Every Telegram-triggered agent run (`chat` and `/apply`) now starts with a mandatory `using-superpowers` skill invocation instruction.
 - Fetch health metrics include:
   - `superpowers_skills_fetch_success_total`

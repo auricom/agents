@@ -1,21 +1,42 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { Counter, Gauge } from "prom-client";
+import { metricsRegistry } from "../metrics/registry.js";
 import { execCommand, type ExecResult } from "../utils/exec.js";
 import { logger } from "../utils/logger.js";
 
 const SUPERPOWERS_REPO_URL = "https://github.com/obra/superpowers.git";
 const DEFAULT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-interface SyncMetrics {
-  successfulFetches: number;
-  failedFetches: number;
-  lastSuccessTimestampSeconds: number;
-  lastFailureTimestampSeconds: number;
-  lastAttemptTimestampSeconds: number;
-  lastDurationSeconds: number;
-  lastFetchStatus: 0 | 1;
-}
+const successfulFetchesCounter = getOrCreateCounter(
+  "superpowers_skills_fetch_success_total",
+  "Total successful fetch attempts for superpowers skills",
+);
+const failedFetchesCounter = getOrCreateCounter(
+  "superpowers_skills_fetch_failure_total",
+  "Total failed fetch attempts for superpowers skills",
+);
+const lastSuccessTimestampGauge = getOrCreateGauge(
+  "superpowers_skills_fetch_last_success_timestamp_seconds",
+  "Last successful fetch attempt timestamp",
+);
+const lastFailureTimestampGauge = getOrCreateGauge(
+  "superpowers_skills_fetch_last_failure_timestamp_seconds",
+  "Last failed fetch attempt timestamp",
+);
+const lastAttemptTimestampGauge = getOrCreateGauge(
+  "superpowers_skills_fetch_last_attempt_timestamp_seconds",
+  "Last fetch attempt timestamp",
+);
+const lastDurationGauge = getOrCreateGauge(
+  "superpowers_skills_fetch_last_duration_seconds",
+  "Duration of last fetch attempt",
+);
+const lastStatusGauge = getOrCreateGauge(
+  "superpowers_skills_fetch_last_status",
+  "Last fetch status (1=success, 0=failure)",
+);
 
 interface SuperpowersSkillsSyncOptions {
   targetDir?: string;
@@ -40,16 +61,6 @@ export class SuperpowersSkillsSync {
 
   private syncTimer: NodeJS.Timeout | null = null;
   private syncRunning = false;
-
-  private readonly metrics: SyncMetrics = {
-    successfulFetches: 0,
-    failedFetches: 0,
-    lastSuccessTimestampSeconds: 0,
-    lastFailureTimestampSeconds: 0,
-    lastAttemptTimestampSeconds: 0,
-    lastDurationSeconds: 0,
-    lastFetchStatus: 0,
-  };
 
   constructor(options: SuperpowersSkillsSyncOptions = {}) {
     this.targetDir = options.targetDir ?? path.join(os.homedir(), ".pi", "agent", "skills");
@@ -85,33 +96,6 @@ export class SuperpowersSkillsSync {
     this.syncTimer = null;
   }
 
-  renderPrometheusMetrics(): string {
-    return [
-      "# HELP superpowers_skills_fetch_success_total Total successful fetch attempts for superpowers skills",
-      "# TYPE superpowers_skills_fetch_success_total counter",
-      `superpowers_skills_fetch_success_total ${this.metrics.successfulFetches}`,
-      "# HELP superpowers_skills_fetch_failure_total Total failed fetch attempts for superpowers skills",
-      "# TYPE superpowers_skills_fetch_failure_total counter",
-      `superpowers_skills_fetch_failure_total ${this.metrics.failedFetches}`,
-      "# HELP superpowers_skills_fetch_last_success_timestamp_seconds Last successful fetch attempt timestamp",
-      "# TYPE superpowers_skills_fetch_last_success_timestamp_seconds gauge",
-      `superpowers_skills_fetch_last_success_timestamp_seconds ${this.metrics.lastSuccessTimestampSeconds}`,
-      "# HELP superpowers_skills_fetch_last_failure_timestamp_seconds Last failed fetch attempt timestamp",
-      "# TYPE superpowers_skills_fetch_last_failure_timestamp_seconds gauge",
-      `superpowers_skills_fetch_last_failure_timestamp_seconds ${this.metrics.lastFailureTimestampSeconds}`,
-      "# HELP superpowers_skills_fetch_last_attempt_timestamp_seconds Last fetch attempt timestamp",
-      "# TYPE superpowers_skills_fetch_last_attempt_timestamp_seconds gauge",
-      `superpowers_skills_fetch_last_attempt_timestamp_seconds ${this.metrics.lastAttemptTimestampSeconds}`,
-      "# HELP superpowers_skills_fetch_last_duration_seconds Duration of last fetch attempt",
-      "# TYPE superpowers_skills_fetch_last_duration_seconds gauge",
-      `superpowers_skills_fetch_last_duration_seconds ${this.metrics.lastDurationSeconds}`,
-      "# HELP superpowers_skills_fetch_last_status Last fetch status (1=success, 0=failure)",
-      "# TYPE superpowers_skills_fetch_last_status gauge",
-      `superpowers_skills_fetch_last_status ${this.metrics.lastFetchStatus}`,
-      "",
-    ].join("\n");
-  }
-
   private async runSync(trigger: "startup" | "schedule"): Promise<void> {
     if (this.syncRunning) {
       logger.warn("superpowers sync skipped; previous run still in progress", { trigger });
@@ -120,23 +104,23 @@ export class SuperpowersSkillsSync {
 
     this.syncRunning = true;
     const startedAt = this.now();
-    this.metrics.lastAttemptTimestampSeconds = Math.floor(startedAt / 1000);
+    lastAttemptTimestampGauge.set(Math.floor(startedAt / 1000));
 
     try {
       await this.syncOnce();
       const successAt = Math.floor(this.now() / 1000);
-      this.metrics.successfulFetches += 1;
-      this.metrics.lastSuccessTimestampSeconds = successAt;
-      this.metrics.lastFetchStatus = 1;
+      successfulFetchesCounter.inc();
+      lastSuccessTimestampGauge.set(successAt);
+      lastStatusGauge.set(1);
       logger.info("superpowers skills fetch successful", {
         trigger,
         targetDir: this.targetDir,
       });
     } catch (error) {
       const failureAt = Math.floor(this.now() / 1000);
-      this.metrics.failedFetches += 1;
-      this.metrics.lastFailureTimestampSeconds = failureAt;
-      this.metrics.lastFetchStatus = 0;
+      failedFetchesCounter.inc();
+      lastFailureTimestampGauge.set(failureAt);
+      lastStatusGauge.set(0);
       logger.error("superpowers skills fetch failed", {
         trigger,
         targetDir: this.targetDir,
@@ -144,7 +128,7 @@ export class SuperpowersSkillsSync {
       });
     } finally {
       const duration = (this.now() - startedAt) / 1000;
-      this.metrics.lastDurationSeconds = Number(duration.toFixed(3));
+      lastDurationGauge.set(Number(duration.toFixed(3)));
       this.syncRunning = false;
     }
   }
@@ -196,4 +180,16 @@ async function defaultPathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function getOrCreateCounter(name: string, help: string): Counter<string> {
+  const existing = metricsRegistry.getSingleMetric(name);
+  if (existing) return existing as Counter<string>;
+  return new Counter({ name, help, registers: [metricsRegistry] });
+}
+
+function getOrCreateGauge(name: string, help: string): Gauge<string> {
+  const existing = metricsRegistry.getSingleMetric(name);
+  if (existing) return existing as Gauge<string>;
+  return new Gauge({ name, help, registers: [metricsRegistry] });
 }

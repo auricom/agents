@@ -14,6 +14,7 @@ import { isAuthorizedUser, verifyWebhookSecret } from "./telegram/verify.js";
 import type { AppConfig, RepoContext } from "./types.js";
 import { assertSuccess, execCommand } from "./utils/exec.js";
 import { logger } from "./utils/logger.js";
+import { createHttpMetricsMiddleware } from "./metrics/http-metrics.js";
 import { registerHealthRoutes } from "./web/health.js";
 
 export interface TelegramClient {
@@ -89,6 +90,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
+  app.use(createHttpMetricsMiddleware());
   registerHealthRoutes(app);
 
   let applyLock = false;

@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderMetrics, resetMetricsRegistry } from "../../src/metrics/registry.js";
 import { SuperpowersSkillsSync } from "../../src/skills/superpowers-sync.js";
 
 describe("SuperpowersSkillsSync", () => {
+  beforeEach(() => {
+    resetMetricsRegistry();
+  });
+
   it("clones when the target repo is missing", async () => {
     const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
     const ensureDir = vi.fn().mockResolvedValue(undefined);
@@ -28,7 +33,7 @@ describe("SuperpowersSkillsSync", () => {
       "/tmp/.pi/agent/skills",
     ]);
 
-    const metrics = sync.renderPrometheusMetrics();
+    const metrics = await renderMetrics();
     expect(metrics).toContain("superpowers_skills_fetch_success_total 1");
     expect(metrics).toContain("superpowers_skills_fetch_failure_total 0");
     expect(metrics).toContain("superpowers_skills_fetch_last_status 1");
@@ -48,7 +53,7 @@ describe("SuperpowersSkillsSync", () => {
     await sync.start();
     sync.stop();
 
-    const metrics = sync.renderPrometheusMetrics();
+    const metrics = await renderMetrics();
     expect(metrics).toContain("superpowers_skills_fetch_success_total 0");
     expect(metrics).toContain("superpowers_skills_fetch_failure_total 1");
     expect(metrics).toContain("superpowers_skills_fetch_last_status 0");
