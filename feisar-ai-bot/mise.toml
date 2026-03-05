@@ -1,19 +1,4 @@
-[env]
-_.python.venv = { path = ".venv", create = true }
-
 [tools]
-flux2 = "latest"
 gh = "latest"
-helm = "latest"
-kubectl = "latest"
-kustomize = "latest"
 node = "latest"
 pre-commit = "latest"
-python = "latest"
-uv = "latest"
-
-[tasks.dependencies]
-description = "Install dependencies"
-alias = "d"
-sources = ['requirements.txt']
-run = "uv pip install -r requirements.txt"
