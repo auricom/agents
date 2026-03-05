@@ -1,4 +1,4 @@
 [tools]
-gh = "latest"
-node = "latest"
-pre-commit = "latest"
+gh = "2.87.3"
+node = "25.8.0"
+pre-commit = "4.5.1"
