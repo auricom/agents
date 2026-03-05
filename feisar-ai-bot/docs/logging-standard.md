@@ -1,6 +1,6 @@
 # Logging Standard (Runtime Services)
 
-This standard is mandatory for runtime services in `feisar-ai-bot`.
+This standard is mandatory for runtime services in `PRPilot`.
 
 ## Requirements
 

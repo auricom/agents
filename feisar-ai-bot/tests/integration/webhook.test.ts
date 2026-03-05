@@ -24,7 +24,7 @@ function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     githubAppPrivateKeyPem: "pem",
     githubAppPrivateKeyPath: undefined,
     githubAppInstallationId: undefined,
-    sessionDir: "/tmp/sessions",
+    sessionDir: path.join(os.tmpdir(), `prpilot-test-${process.pid}-${Math.random().toString(16).slice(2)}`),
     isDev: true,
     ...overrides,
   };
@@ -71,6 +71,24 @@ function makeApplyReadyDeps(telegram: TelegramClient, execCommandImpl: (args: st
     createPullRequest: vi.fn(async () => "https://github.com/owner/repo/pull/1"),
     execCommand: vi.fn(async (_command: string, args: string[]) => execCommandImpl(args)),
   };
+}
+
+async function waitForTaskHistoryEntry(sessionDir: string, needle: string): Promise<void> {
+  const filePath = path.join(sessionDir, "task-history.json");
+  const timeoutMs = 1000;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const raw = await fs.readFile(filePath, "utf8");
+      if (raw.includes(needle)) return;
+    } catch {
+      // wait for first write
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Timed out waiting for task history entry: ${needle}`);
 }
 
 describe("telegram webhook integration", () => {
@@ -226,7 +244,7 @@ describe("telegram webhook integration", () => {
     await request(app)
       .post("/telegram/webhook/secret-token")
       .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
-      .send(makeUpdate("/repo repo"));
+      .send(makeUpdate("/repo repo-one"));
 
     const response = await request(app)
       .post("/telegram/webhook/secret-token")
@@ -235,7 +253,7 @@ describe("telegram webhook integration", () => {
 
     expect(response.status).toBe(200);
     expect(deps.commitAll).toHaveBeenCalledWith(
-      expect.objectContaining({ repoOwner: "owner", repoName: "repo", repoPath: "/tmp/repo" }),
+      expect.objectContaining({ repoOwner: "owner", repoName: "repo-one", repoPath: "/tmp/repo-one" }),
       "agent/branch",
       expect.stringContaining("add tests"),
       "token",
@@ -261,7 +279,7 @@ describe("telegram webhook integration", () => {
     await request(app)
       .post("/telegram/webhook/secret-token")
       .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
-      .send(makeUpdate("/repo repo"));
+      .send(makeUpdate("/repo repo-one"));
 
     const response = await request(app)
       .post("/telegram/webhook/secret-token")
@@ -270,7 +288,7 @@ describe("telegram webhook integration", () => {
 
     expect(response.status).toBe(200);
     expect(deps.commitAll).toHaveBeenCalledWith(
-      expect.objectContaining({ repoOwner: "owner", repoName: "repo", repoPath: "/tmp/repo" }),
+      expect.objectContaining({ repoOwner: "owner", repoName: "repo-one", repoPath: "/tmp/repo-one" }),
       "agent/branch",
       expect.stringContaining("add tests"),
       "token",
@@ -283,7 +301,7 @@ describe("telegram webhook integration", () => {
   });
 
   it("persists selected repository across app restart", async () => {
-    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "feisar-ai-bot-"));
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-"));
     const execCommand = vi.fn(async (_command: string, args: string[]) => {
       if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
         return { code: 0, stdout: "true\n", stderr: "" };
@@ -329,7 +347,7 @@ describe("telegram webhook integration", () => {
   });
 
   it("persists tasks history across app restart and keeps latest entries", async () => {
-    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "feisar-ai-bot-tasks-"));
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-tasks-"));
     const execCommand = vi.fn(async (_command: string, args: string[]) => {
       if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
         return { code: 0, stdout: "true\n", stderr: "" };
@@ -353,6 +371,8 @@ describe("telegram webhook integration", () => {
       .post("/telegram/webhook/secret-token")
       .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
       .send(makeUpdate("deploy app one"));
+
+    await waitForTaskHistoryEntry(sessionDir, "deploy app one");
 
     const secondTelegram = mockTelegram();
     const secondApp = createApp(testConfig({ sessionDir }), {

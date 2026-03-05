@@ -1,4 +1,4 @@
-# feisar-ai-bot
+# PRPilot
 
 Telegram webhook service that drives Pi on selected repositories and can open PRs to `main`.
 
@@ -12,7 +12,7 @@ Telegram webhook service that drives Pi on selected repositories and can open PR
 
 ## Required environment variables
 
-- `PUBLIC_BASE_URL` (e.g. `https://feisar-ai-bot.${SECRET_EXTERNAL_DOMAIN}`)
+- `PUBLIC_BASE_URL` (e.g. `https://prpilot.${SECRET_EXTERNAL_DOMAIN}`)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `TELEGRAM_ALLOWED_USER_ID`
