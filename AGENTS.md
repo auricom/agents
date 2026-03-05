@@ -134,6 +134,16 @@ This repository stores AI agent skills (AgentSkills) — modular, self-contained
 - Node.js (managed via `mise` — run `mise install` to set up)
 - Python scripts for skill tooling (no install needed, use system Python 3)
 
+## Runtime Logging Policy (short, always-on)
+
+When modifying runtime services, logging must:
+- rely on Kubernetes/runtime timestamp metadata (do not emit app-side timestamp fields)
+- support `LOG_LEVEL` (`DEBUG|INFO|WARN|ERROR`)
+- include `logger.debug()` in core code paths
+- avoid `console.*` in runtime source
+
+Detailed standard: `docs/logging-standard.md`.
+
 ## Managing Skills
 
 Skills are managed via the `openskills` CLI:
