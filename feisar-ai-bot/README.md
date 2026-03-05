@@ -161,6 +161,8 @@ Superpowers sync metrics:
 
 ### Suggested alerts (when you add alerting)
 
+A ready-to-use rule file is included at `alerts/pi-agent-rules.yaml`.
+
 - **High Pi run failure ratio**
   - `sum(rate(pi_runs_total{result=~"error|aborted|empty-output"}[10m])) / sum(rate(pi_runs_total[10m])) > 0.2`
 - **Busy contention spike**
