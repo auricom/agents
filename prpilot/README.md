@@ -190,6 +190,51 @@ npm run check
 - Never commit bot token, webhook secret, or GitHub private key
 - Ensure each repo in `REPO_NAMES` exists at `<REPOS_ROOT>/<name>` and contains `AGENTS.md`
 
+## Target repository best practices
+
+If a repository should be safely operated by PRPilot, organize it with these conventions:
+
+- **Required root files**
+  - `AGENTS.md` at repository root (mandatory; PRPilot fails runs if missing)
+  - clear `README.md` for project context
+  - standard ignore rules (`.gitignore`) and local env template (`.env.example`) if env vars are needed
+- **Git layout**
+  - remote `origin` configured and reachable
+  - default/base branch is `main` (PRPilot resets to and opens PRs against `main`)
+  - avoid long-lived uncommitted local changes in target repos
+- **Automation entrypoints**
+  - stable build/test commands (for example `npm test`, `npm run build`) so agent tasks can verify changes
+  - CI should validate PRs created by PRPilot feature branches
+- **Agent friendliness**
+  - keep task-relevant docs close to code (`docs/`, architecture notes, runbooks)
+  - avoid ambiguous repository layouts; prefer predictable paths and naming
+  - keep secrets out of tracked files and out of prompts
+- **Scope control**
+  - only include repos in `REPO_NAMES` that you explicitly allow PRPilot to modify
+  - if a repo is read-only for experimentation, keep it out of `REPO_NAMES`
+
+## `using-superpowers` skill behavior
+
+PRPilot prepends a superpowers prelude to every Pi run (`chat` and `apply`) instructing the agent to load:
+
+```bash
+npx openskills read using-superpowers
+```
+
+This enforces a skill-first workflow before any implementation action.
+
+Recommendations for target repos:
+
+- keep `AGENTS.md` aligned with this behavior (do not add conflicting instructions that bypass skills)
+- ensure skill references in `AGENTS.md` are valid and up to date
+- keep superpowers skills synced in the runtime environment so `using-superpowers` is available when invoked
+
+Minimal `AGENTS.md` expectation for PRPilot targets:
+
+- repository-specific constraints/instructions
+- available skills list (including `using-superpowers`)
+- any required verification commands before completion
+
 ## Troubleshooting
 
 - **Unauthorized in Telegram**: verify `TELEGRAM_ALLOWED_USER_ID`

@@ -37,4 +37,24 @@ describe("createPullRequest", () => {
       expect.objectContaining({ cwd: "/tmp/repo" }),
     );
   });
+
+  it("returns auth failure for authenticated push/pr errors", async () => {
+    const { pushBranch } = await import("../../src/git/pr.js");
+
+    execCommand.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "403 forbidden" });
+    await expect(pushBranch(repo(), "agent/a", "token")).rejects.toThrow("AUTH_FAILED");
+
+    execCommand.mockResolvedValueOnce({ code: 1, stdout: "authentication failed", stderr: "" });
+    await expect(createPullRequest(repo(), "agent/a", "title", "body", "token")).rejects.toThrow("AUTH_FAILED");
+  });
+
+  it("pushes branch and returns pr url on success", async () => {
+    const { pushBranch } = await import("../../src/git/pr.js");
+
+    execCommand.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" });
+    await expect(pushBranch(repo(), "agent/ok", "token")).resolves.toBeUndefined();
+
+    execCommand.mockResolvedValueOnce({ code: 0, stdout: "https://example/pr/55\n", stderr: "" });
+    await expect(createPullRequest(repo(), "agent/ok", "title", "body", "token")).resolves.toBe("https://example/pr/55");
+  });
 });
