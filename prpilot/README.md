@@ -93,6 +93,8 @@ PRPilot validates both:
 | `/select <n>` | Select a planning task to continue or apply |
 | `/select 0` | Deselect the active task |
 | `/select` | Show which task is currently active |
+| `/new` | Clear active task and start fresh |
+| `/delete <n>` | Delete a task from history |
 | `/apply` | Apply the active task (or infer from chat context) |
 | `/apply <task>` | Apply an explicit task directly |
 | `/abort` | Abort the current run |
@@ -108,6 +110,8 @@ Tasks have two primary statuses: **planning** and **applied**.
 4. Task selection clears after apply completes
 
 Additional terminal statuses: `failed`, `no-changes`, `aborted`.
+
+Task history is capped at 10 entries — older tasks are automatically dropped on save.
 
 ## Execution flow
 

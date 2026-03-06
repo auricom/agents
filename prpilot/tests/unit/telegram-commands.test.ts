@@ -39,6 +39,23 @@ describe("parseCommand", () => {
     expect(parseCommand("/select abc")).toEqual({ type: "select" });
   });
 
+  it("parses /new", () => {
+    expect(parseCommand("/new")).toEqual({ type: "new" });
+  });
+
+  it("parses /delete", () => {
+    expect(parseCommand("/delete")).toEqual({ type: "delete" });
+  });
+
+  it("parses /delete with index", () => {
+    expect(parseCommand("/delete 2")).toEqual({ type: "delete", index: 2 });
+  });
+
+  it("treats invalid /delete index as usage request", () => {
+    expect(parseCommand("/delete abc")).toEqual({ type: "delete" });
+    expect(parseCommand("/delete 0")).toEqual({ type: "delete" });
+  });
+
   it("parses /repo", () => {
     expect(parseCommand("/repo")).toEqual({ type: "repo" });
   });

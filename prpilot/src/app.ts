@@ -361,6 +361,66 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   break;
                 }
 
+                case "new": {
+                  selectedTaskByChatId.delete(chatId);
+                  currentTask = null;
+                  await deps.telegram.sendMessage(
+                    chatId,
+                    formatTelegramMessage("✨", "Ready", [
+                      "Task cleared. Send your next message to start a new task.",
+                    ]),
+                    "HTML",
+                  );
+                  break;
+                }
+
+                case "delete": {
+                  if (!command.index) {
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("ℹ️", "Delete Task", [
+                        `Usage: ${formatCode("/delete <number>")}`,
+                        `List tasks with ${formatCode("/tasks")}`,
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  const deleteEntry = taskHistory[command.index - 1];
+                  if (!deleteEntry) {
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("❌", "Task Not Found", [
+                        `No task #${command.index}.`,
+                        `List tasks with ${formatCode("/tasks")}`,
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  // Clear selection if the deleted task is active
+                  const activeForDelete = selectedTaskByChatId.get(chatId);
+                  if (activeForDelete === deleteEntry) {
+                    selectedTaskByChatId.delete(chatId);
+                  }
+                  if (currentTask === deleteEntry) {
+                    currentTask = null;
+                  }
+
+                  taskHistory.splice(command.index - 1, 1);
+                  markTaskHistoryDirty();
+                  await deps.telegram.sendMessage(
+                    chatId,
+                    formatTelegramMessage("🗑️", "Task Deleted", [
+                      `Removed #${command.index}: ${escapeHtml(deleteEntry.title)}`,
+                    ]),
+                    "HTML",
+                  );
+                  break;
+                }
+
                 case "repo": {
                   if (!command.name) {
                     const selectedRepo = selectedRepoByChatId.get(chatId) ?? "none";
@@ -782,7 +842,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   await deps.telegram.sendMessage(
                     chatId,
                     formatTelegramMessage("❓", "Unknown Command", [
-                      `Use ${formatCode("/repo")}, ${formatCode("/status")}, ${formatCode("/tasks")}, ${formatCode("/task <n>")}, ${formatCode("/select <n>")}, ${formatCode("/apply")}, ${formatCode("/abort")} or type your request.`,
+                      `Use ${formatCode("/repo")}, ${formatCode("/status")}, ${formatCode("/tasks")}, ${formatCode("/task <n>")}, ${formatCode("/select <n>")}, ${formatCode("/new")}, ${formatCode("/delete <n>")}, ${formatCode("/apply")}, ${formatCode("/abort")} or type your request.`,
                     ]),
                     "HTML",
                   );
