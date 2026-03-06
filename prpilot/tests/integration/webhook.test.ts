@@ -589,6 +589,45 @@ describe("telegram webhook integration", () => {
     );
   });
 
+  it("migrates legacy task history entries on load", async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-migrate-"));
+    const legacyHistory = [
+      {
+        repoName: "repo-one",
+        label: "set replica for authelia at 6",
+        slug: "set-replica-for-authelia-at-6",
+        mode: "chat",
+        status: "planned",
+        summary: "Authelia replicas updated from **1 → 6**",
+        createdAt: "2026-03-06T14:55:00.000Z",
+      },
+    ];
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, "task-history.json"), JSON.stringify(legacyHistory));
+
+    const telegram = mockTelegram();
+    const { app } = createApp(testConfig({ sessionDir }), {
+      telegram,
+      currentBranch: vi.fn(async () => "main"),
+    });
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/tasks"));
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      99,
+      expect.stringContaining("📝 planning"),
+      "HTML",
+    );
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      99,
+      expect.stringContaining("Set replica for authelia at 6"),
+      "HTML",
+    );
+  });
+
   it("records main app http metrics with templated route labels", async () => {
     const telegram = mockTelegram();
     const { app } = createApp(testConfig(), { telegram });

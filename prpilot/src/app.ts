@@ -1120,9 +1120,19 @@ async function loadTaskHistory(storePath: string, target: TaskEntry[]): Promise<
       return;
     }
 
-    const normalized = parsed
+    const migrated = parsed
       .filter((entry) => entry && typeof entry === "object")
-      .filter((entry) => typeof entry.repoName === "string" && typeof entry.label === "string" && typeof entry.title === "string")
+      .filter((entry) => typeof entry.repoName === "string" && typeof entry.label === "string")
+      .map((entry: any) => ({
+        repoName: entry.repoName as string,
+        label: entry.label as string,
+        title: typeof entry.title === "string" ? entry.title : deriveConciseTitle(entry.label),
+        status: migrateTaskStatus(entry.status),
+        summary: typeof entry.summary === "string" ? entry.summary : undefined,
+        createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
+      }));
+
+    const normalized = migrated
       .filter((entry) => ["planning", "applied", "no-changes", "failed", "aborted"].includes(entry.status))
       .slice(0, 10) as TaskEntry[];
 
@@ -1131,6 +1141,22 @@ async function loadTaskHistory(storePath: string, target: TaskEntry[]): Promise<
     logger.debug("task history loaded", { count: normalized.length });
   } catch {
     logger.debug("task history not found; starting empty");
+  }
+}
+
+function migrateTaskStatus(raw: unknown): TaskStatus {
+  switch (raw) {
+    case "planning":
+    case "applied":
+    case "no-changes":
+    case "failed":
+    case "aborted":
+      return raw;
+    case "planned":
+    case "running":
+      return "planning";
+    default:
+      return "failed";
   }
 }
 
