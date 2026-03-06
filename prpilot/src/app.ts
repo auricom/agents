@@ -48,13 +48,12 @@ export interface TokenProviderLike {
   forceRefresh(repoName: string): Promise<string>;
 }
 
-type TaskStatus = "planned" | "running" | "applied" | "no-changes" | "failed" | "aborted";
+type TaskStatus = "planning" | "applied" | "no-changes" | "failed" | "aborted";
 
 interface TaskEntry {
   repoName: string;
   label: string;
-  slug: string;
-  mode: "chat" | "apply";
+  title: string;
   status: TaskStatus;
   summary?: string;
   createdAt: string;
@@ -221,7 +220,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     ? formatTelegramRow(
                       "🧭",
                       "Task",
-                      `${formatCode(currentTask.slug)} - ${formatTaskStatus(currentTask.status)} - ${escapeHtml(currentTask.label)}`,
+                      `${formatTaskStatus(currentTask.status)} — ${escapeHtml(currentTask.title)}`,
                     )
                     : formatTelegramRow("🧭", "Task", "none");
                   const repoLine = selectedRepo
@@ -366,7 +365,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     break;
                   }
 
-                  const entry = createTaskEntry(selectedRepo.repoName, command.text, "chat", "planned");
+                  const entry = createTaskEntry(selectedRepo.repoName, command.text, "planning");
                   currentTask = entry;
                   addTaskHistory(taskHistory, entry);
                   markTaskHistoryDirty();
@@ -384,6 +383,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       selectedRepo.repoPath,
                     );
                     entry.summary = summarizeTaskText(output);
+                    entry.title = deriveConciseTitle(output) || entry.title;
                     markTaskHistoryDirty();
                     await deps.telegram.sendMessage(chatId, markdownToHtml(truncateTelegram(output)), "HTML");
                   } finally {
@@ -500,12 +500,10 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     ?? createTaskEntry(
                       selectedRepo.repoName,
                       applyLabel,
-                      "apply",
-                      "running",
+                      "planning",
                       summarySource ?? applyLabel,
                     );
-                  applyEntry.mode = "apply";
-                  applyEntry.status = "running";
+                  applyEntry.status = "planning";
                   applyEntry.summary = summarizeTaskText(summarySource ?? applyLabel);
                   currentTask = applyEntry;
                   if (!taskHistory.includes(applyEntry)) {
@@ -546,6 +544,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       selectedRepo.repoPath,
                     );
                     applyEntry.summary = summarizeTaskText(runOutput);
+                    applyEntry.title = deriveConciseTitle(runOutput) || applyEntry.title;
                     markTaskHistoryDirty();
 
                     await ensureOnBranch(selectedRepo, branch, deps.execCommand);
@@ -643,7 +642,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       "HTML",
                     );
                   } finally {
-                    if (applyEntry.status === "running") {
+                    if (applyEntry.status === "planning") {
                       applyEntry.status = "failed";
                       markTaskHistoryDirty();
                     }
@@ -828,15 +827,13 @@ export function truncateOneLine(text: string, max: number): string {
 function createTaskEntry(
   repoName: string,
   label: string,
-  mode: "chat" | "apply",
   status: TaskStatus,
   summary?: string,
 ): TaskEntry {
   return {
     repoName,
     label,
-    slug: slugifyTask(label),
-    mode,
+    title: deriveConciseTitle(label),
     status,
     summary: summary ? summarizeTaskText(summary) : undefined,
     createdAt: new Date().toISOString(),
@@ -854,33 +851,28 @@ function addTaskHistory(history: TaskEntry[], entry: TaskEntry): void {
 function formatTaskListLine(entry: TaskEntry, index: number): string {
   const status = formatTaskStatus(entry.status);
   const when = formatTaskRelativeTime(entry.createdAt);
-  return `${index + 1}. <b>${escapeHtml(truncateOneLine(entry.label, 72))}</b> — ${status} • <code>${escapeHtml(entry.repoName)}</code> • ${escapeHtml(when)}`;
+  return `${index + 1}. <b>${escapeHtml(entry.title)}</b> — ${status} • <code>${escapeHtml(entry.repoName)}</code> • ${escapeHtml(when)}`;
 }
 
 function formatTaskDetailLines(entry: TaskEntry): string[] {
   const status = formatTaskStatus(entry.status);
-  const mode = entry.mode === "apply" ? "apply" : "chat";
   const when = formatTaskTime(entry.createdAt);
   const lines = [
-    formatTelegramRow("🏷️", "Label", escapeHtml(entry.label)),
+    formatTelegramRow("🏷️", "Title", escapeHtml(entry.title)),
     formatTelegramRow("📌", "Status", status),
-    formatTelegramRow("⚙️", "Mode", formatCode(mode)),
     formatTelegramRow("📦", "Repo", formatCode(entry.repoName)),
-    formatTelegramRow("🧷", "Slug", formatCode(entry.slug)),
     formatTelegramRow("🕒", "Created", formatCode(when)),
   ];
   if (entry.summary) {
-    lines.push(formatTelegramRow("📝", "Summary", escapeHtml(truncateOneLine(entry.summary, 1000))));
+    lines.push(formatTelegramRow("📝", "Summary", markdownToHtml(truncateOneLine(entry.summary, 1000))));
   }
   return lines;
 }
 
 function formatTaskStatus(status: TaskStatus): string {
   switch (status) {
-    case "planned":
-      return "📝 planned";
-    case "running":
-      return "⏳ running";
+    case "planning":
+      return "📝 planning";
     case "applied":
       return "✅ applied";
     case "no-changes":
@@ -930,9 +922,9 @@ function deriveTaskLabelFromChatSummary(chatSummary: string): string | null {
 }
 
 function deriveTaskLabelFromHistory(history: TaskEntry[], repoName: string): string | null {
-  const latestChatTask = history.find((entry) => entry.repoName === repoName && entry.mode === "chat");
-  if (!latestChatTask) return null;
-  const label = latestChatTask.label.trim();
+  const planningTask = history.find((entry) => entry.repoName === repoName && entry.status === "planning");
+  if (!planningTask) return null;
+  const label = planningTask.label.trim();
   if (!label || isGenericTaskLabel(label)) return null;
   return truncateOneLine(label, 80);
 }
@@ -944,14 +936,13 @@ function deriveTaskLabelFromIntent(intentMap: Map<string, string>, chatId: numbe
 }
 
 function findMergeablePlannedTask(history: TaskEntry[], repoName: string, label: string): TaskEntry | null {
-  const slug = slugifyTask(label);
+  const candidateTitle = deriveConciseTitle(label);
   const now = Date.now();
   const mergeWindowMs = 2 * 60 * 60 * 1000;
   for (const entry of history) {
     if (entry.repoName !== repoName) continue;
-    if (entry.slug !== slug) continue;
-    if (entry.mode !== "chat") continue;
-    if (entry.status !== "planned") continue;
+    if (entry.title !== candidateTitle) continue;
+    if (entry.status !== "planning") continue;
     const createdAtMs = Date.parse(entry.createdAt);
     if (Number.isFinite(createdAtMs) && now - createdAtMs > mergeWindowMs) continue;
     return entry;
@@ -981,13 +972,21 @@ function stripHtml(text: string): string {
   return text.replace(/<[^>]+>/g, "");
 }
 
-function slugifyTask(text: string): string {
-  const slug = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return slug || "task";
+function deriveConciseTitle(text: string): string {
+  const plain = stripHtml(text).replace(/\s+/g, " ").trim();
+  if (!plain) return "Untitled task";
+
+  // Strip filler prefixes: "Done!", "I want you to", etc.
+  const cleaned = plain
+    .replace(/^(done!?\s*|okay[.,!]?\s*|sure[.,!]?\s*|i want (you )?to\s+|please\s+|can you\s+)/i, "")
+    .trim();
+
+  // Take the first sentence or clause
+  const firstSentence = cleaned.split(/[.\n]/).filter(Boolean)[0] ?? cleaned;
+
+  // Capitalize first letter, truncate
+  const titled = firstSentence.charAt(0).toUpperCase() + firstSentence.slice(1);
+  return truncateOneLine(titled, 60);
 }
 
 async function fetchRemoteRepo(repo: RepoContext, runCommand: typeof execCommand): Promise<void> {
@@ -1123,9 +1122,8 @@ async function loadTaskHistory(storePath: string, target: TaskEntry[]): Promise<
 
     const normalized = parsed
       .filter((entry) => entry && typeof entry === "object")
-      .filter((entry) => typeof entry.repoName === "string" && typeof entry.label === "string" && typeof entry.slug === "string")
-      .filter((entry) => entry.mode === "chat" || entry.mode === "apply")
-      .filter((entry) => ["planned", "running", "applied", "no-changes", "failed", "aborted"].includes(entry.status))
+      .filter((entry) => typeof entry.repoName === "string" && typeof entry.label === "string" && typeof entry.title === "string")
+      .filter((entry) => ["planning", "applied", "no-changes", "failed", "aborted"].includes(entry.status))
       .slice(0, 10) as TaskEntry[];
 
     target.length = 0;

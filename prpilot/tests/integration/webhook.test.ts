@@ -239,7 +239,7 @@ describe("telegram webhook integration", () => {
     );
     expect(telegram.sendMessage).toHaveBeenCalledWith(
       99,
-      expect.stringContaining("deploy seasonpackerr"),
+      expect.stringContaining("Plan output"),
       "HTML",
     );
   });
@@ -584,7 +584,7 @@ describe("telegram webhook integration", () => {
     expect(response.status).toBe(200);
     expect(secondTelegram.sendMessage).toHaveBeenCalledWith(
       99,
-      expect.stringContaining("deploy app one"),
+      expect.stringContaining("Plan output"),
       "HTML",
     );
   });
