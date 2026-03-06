@@ -3,6 +3,7 @@ import { renderMetrics, resetMetricsRegistry } from "../../src/metrics/registry.
 import type { AppConfig } from "../../src/types.js";
 
 const createAgentSession = vi.fn();
+const createBashTool = vi.fn();
 const createCodingTools = vi.fn();
 const createReadOnlyTools = vi.fn();
 const open = vi.fn();
@@ -14,6 +15,7 @@ const mkdir = vi.fn();
 
 vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession,
+  createBashTool,
   createCodingTools,
   createReadOnlyTools,
   SessionManager: {
@@ -51,6 +53,7 @@ function cfg(): AppConfig {
 beforeEach(() => {
   resetMetricsRegistry();
   createAgentSession.mockReset();
+  createBashTool.mockReset();
   createCodingTools.mockReset();
   createReadOnlyTools.mockReset();
   open.mockReset();
@@ -86,11 +89,12 @@ describe("PiSessionManager", () => {
     expect(metrics).toContain('pi_session_get_total{mode="rw",cache="hit"} 1');
   });
 
-  it("opens existing read-only session from index with read-only tools and records read IO error", async () => {
+  it("opens existing read-only session from index with read-only + web tools and records read IO error", async () => {
     readFile
       .mockRejectedValueOnce(new Error("broken json"))
       .mockResolvedValueOnce('{"5:ro:repo-two":"/tmp/sessions/existing.json"}');
     createReadOnlyTools.mockReturnValue(["tools-ro"]);
+    createBashTool.mockReturnValue({ name: "bash-mock", execute: vi.fn() });
     open.mockReturnValue("opened-manager");
     createAgentSession.mockResolvedValue({
       session: { sessionFile: undefined, isStreaming: false, abort: vi.fn() },
@@ -101,10 +105,11 @@ describe("PiSessionManager", () => {
     await manager.getSession(5, false, "repo-two", "/workspace/repo-two");
 
     expect(createReadOnlyTools).toHaveBeenCalledWith("/workspace/repo-one");
-    expect(createAgentSession).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ tools: ["tools-ro"] }),
-    );
+    // Read-only tools + web tool (which wraps createBashTool internally)
+    const firstCallTools = createAgentSession.mock.calls[0][0].tools;
+    expect(firstCallTools).toHaveLength(2);
+    expect(firstCallTools[0]).toBe("tools-ro");
+    expect(firstCallTools[1]).toHaveProperty("name", "web");
     expect(open).toHaveBeenCalledWith("/tmp/sessions/existing.json");
     const metrics = await renderMetrics();
     expect(metrics).toContain('pi_session_index_io_errors_total{op="read"} 1');

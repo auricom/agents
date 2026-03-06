@@ -1,6 +1,7 @@
 export const TELEGRAM_REPOSITORY_SELF_SERVICE_RULES = [
-  "Use available repository tools directly, including git/gh/bash, whenever repo context is needed.",
-  "Do not ask the Telegram user to run commands or paste git output when you can inspect it yourself.",
+  "Use available repository tools directly whenever repo context is needed.",
+  "Do not ask the Telegram user to run commands or paste output when you can inspect it yourself.",
+  'In planning mode you have a "web" tool that runs lynx. Use it to search the internet, read documentation, or fetch URLs the user provides. Always use lynx with -dump for plain text output.',
 ] as const;
 
 export interface BuildTelegramAgentPromptInput {

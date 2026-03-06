@@ -7,6 +7,7 @@ import {
   SessionManager,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import { createWebTool } from "./web-tool.js";
 import {
   recordPiSessionAbort,
   recordPiSessionGet,
@@ -44,7 +45,7 @@ export class PiSessionManager {
 
     const tools = writable
       ? createCodingTools(repoPath)
-      : createReadOnlyTools(repoPath);
+      : [...createReadOnlyTools(repoPath), createWebTool(repoPath)];
     const index = await this.readIndex();
     const existingFile = index[key];
     logger.debug("session resolving", {

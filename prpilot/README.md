@@ -119,7 +119,7 @@ Task history is capped at 10 entries — older tasks are automatically dropped o
 
 1. Require selected repo (`/repo <name>`)
 2. Reset repo to clean `origin/main`
-3. Run Pi in **read-only** `chat` mode (agent has `read`, `grep`, `find`, `ls` tools only)
+3. Run Pi in **read-only** `chat` mode (agent has `read`, `grep`, `find`, `ls`, and `web` tools — `web` runs lynx for internet access)
 4. Create or update task entry in history (if a task is selected via `/select`, the same entry is updated)
 5. Derive a concise task title from the agent response
 6. Reset repo to clean `origin/main`
