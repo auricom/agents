@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import express from "express";
 import { loadConfig } from "./config.js";
 import { createApp } from "./app.js";
-import { SuperpowersSkillsSync } from "./skills/superpowers-sync.js";
 import { logger } from "./utils/logger.js";
 import { metricsContentType, renderMetrics } from "./metrics/registry.js";
 import { registerHealthRoutes } from "./web/health.js";
@@ -20,8 +19,6 @@ async function bootstrap(): Promise<void> {
   });
 
   await fs.mkdir(cfg.sessionDir, { recursive: true });
-  const superpowersSync = new SuperpowersSkillsSync();
-  await superpowersSync.start();
 
   const webhookUrl = `${cfg.publicBaseUrl.replace(/\/$/, "")}/telegram/webhook/${cfg.telegramWebhookSecret}`;
   const safeWebhookUrl = `${cfg.publicBaseUrl.replace(/\/$/, "")}/telegram/webhook/<redacted>`;

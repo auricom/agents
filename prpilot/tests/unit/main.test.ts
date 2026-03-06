@@ -48,17 +48,11 @@ describe("main bootstrap", () => {
     };
 
     const longNames = ["x".repeat(260), "repo-two"];
-    const start = vi.fn().mockResolvedValue(undefined);
 
     vi.doMock("node:fs/promises", () => ({ default: { mkdir: vi.fn().mockResolvedValue(undefined) } }));
     vi.doMock("express", () => ({ default: vi.fn(() => metricsApp) }));
     vi.doMock("../../src/config.js", () => ({ loadConfig: () => cfg({ repoNames: longNames }) }));
     vi.doMock("../../src/app.js", () => ({ createApp: () => ({ app: { listen: appListen }, telegram }) }));
-    vi.doMock("../../src/skills/superpowers-sync.js", () => ({
-      SuperpowersSkillsSync: class {
-        start = start;
-      },
-    }));
     vi.doMock("../../src/metrics/registry.js", () => ({
       metricsContentType: "text/plain",
       renderMetrics: vi.fn().mockResolvedValue("ok"),
@@ -68,12 +62,12 @@ describe("main bootstrap", () => {
     await import("../../src/main.ts");
     await flush();
 
-    expect(start).toHaveBeenCalledTimes(1);
     expect(telegram.deleteMyCommands).toHaveBeenCalledTimes(4);
     expect(telegram.setWebhook).toHaveBeenCalledWith("https://example.com/telegram/webhook/secret", "secret");
     const commandPayload = telegram.setMyCommands.mock.calls[0][0] as Array<{ command: string; description: string }>;
     const repoCommand = commandPayload.find((c) => c.command === "repo");
     expect(repoCommand?.description.length).toBeLessThanOrEqual(256);
+    expect(commandPayload.map((c) => c.command)).toEqual(["repo", "status", "tasks", "apply", "abort"]);
     expect(telegram.getWebhookInfo).toHaveBeenCalledTimes(1);
   });
 });

@@ -61,3 +61,6 @@ ENV/
 env/
 .ipynb_checkpoints/
 *.pyc
+
+# Pi
+.pi/*stats.json

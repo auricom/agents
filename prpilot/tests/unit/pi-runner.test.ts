@@ -4,6 +4,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderMetrics, resetMetricsRegistry } from "../../src/metrics/registry.js";
 import { PiRunner } from "../../src/agent/pi-runner.js";
+import { TELEGRAM_REPOSITORY_SELF_SERVICE_RULES } from "../../src/agent/telegram-prompt-policy.js";
 
 function createSessionEntry() {
   return {
@@ -21,7 +22,7 @@ describe("PiRunner", () => {
     resetMetricsRegistry();
   });
 
-  it("injects using-superpowers instructions for chat mode", async () => {
+  it("builds a concise chat prompt with repository, tool, and Telegram guidance", async () => {
     const repoPath = await createRepoWithAgents("repo rules for chat");
     const entry = createSessionEntry();
     const getSession = vi.fn().mockResolvedValue(entry);
@@ -30,12 +31,17 @@ describe("PiRunner", () => {
     await runner.run(123, "chat", "change ingress", "home-ops", repoPath);
 
     const prompt = entry.session.prompt.mock.calls[0][0] as string;
-    expect(prompt).toContain("npx openskills read using-superpowers");
+    expect(prompt).toContain("Repository selected: home-ops");
     expect(prompt).toContain("repo rules for chat");
+    expect(prompt).toContain("User message from Telegram:");
     expect(prompt).toContain("change ingress");
+    for (const line of TELEGRAM_REPOSITORY_SELF_SERVICE_RULES) {
+      expect(prompt).toContain(line);
+    }
+    expect(prompt).toContain("Respond for Telegram. Keep it concise and actionable.");
   });
 
-  it("injects using-superpowers instructions for apply mode", async () => {
+  it("builds an apply prompt with repository, tool, and execution guidance", async () => {
     const repoPath = await createRepoWithAgents("repo rules for apply");
     const entry = createSessionEntry();
     const getSession = vi.fn().mockResolvedValue(entry);
@@ -44,9 +50,14 @@ describe("PiRunner", () => {
     await runner.run(123, "apply", "apply prompt body", "home-ops", repoPath);
 
     const prompt = entry.session.prompt.mock.calls[0][0] as string;
-    expect(prompt).toContain("npx openskills read using-superpowers");
+    expect(prompt).toContain("Repository selected: home-ops");
     expect(prompt).toContain("repo rules for apply");
+    expect(prompt).toContain("Apply-mode task:");
     expect(prompt).toContain("apply prompt body");
+    for (const line of TELEGRAM_REPOSITORY_SELF_SERVICE_RULES) {
+      expect(prompt).toContain(line);
+    }
+    expect(prompt).toContain("Execute the task directly in the repository and summarize results for Telegram.");
 
     const metrics = await renderMetrics();
     expect(metrics).toContain('pi_runs_total{mode="apply",result="success"} 1');

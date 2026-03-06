@@ -7,6 +7,7 @@ import { PiSessionManager } from "./agent/session-manager.js";
 import { createFeatureBranch } from "./git/branch.js";
 import { commitAll } from "./git/commit.js";
 import { createPullRequest, pushBranch } from "./git/pr.js";
+import { renderPullRequestBody } from "./git/pr-body-template.js";
 import { GitHubTokenProvider } from "./github/token-refresh.js";
 import { TelegramApi } from "./telegram/api.js";
 import { parseCommand } from "./telegram/commands.js";
@@ -31,7 +32,13 @@ export interface SessionManagerLike {
 }
 
 export interface PiRunnerLike {
-  run(chatId: number, mode: "chat" | "apply", task: string, repoName: string, repoPath: string): Promise<string>;
+  run(
+    chatId: number,
+    mode: "chat" | "apply",
+    task: string,
+    repoName: string,
+    repoPath: string,
+  ): Promise<string>;
   getLastChatSummary(chatId: number, repoName: string, repoPath: string): Promise<string | null>;
 }
 
@@ -487,7 +494,8 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     ].join("\n");
                   }
 
-                  const applyEntry = findMergeablePlannedTask(taskHistory, selectedRepo.repoName, applyLabel)
+                  const existingPlannedTask = findMergeablePlannedTask(taskHistory, selectedRepo.repoName, applyLabel);
+                  const applyEntry = existingPlannedTask
                     ?? createTaskEntry(
                       selectedRepo.repoName,
                       applyLabel,
@@ -580,19 +588,17 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       await verifyBranchReadyForPr(selectedRepo, branch, deps.execCommand);
 
                       const prTitle = `agent: ${truncateOneLine(applyLabel, 72)}`;
-                      const prBody = [
-                        "Automated PR from Telegram-driven Pi agent.",
-                        "",
-                        `Task: ${applyLabel}`,
-                        "",
-                        "## Agent summary",
-                        runOutput,
-                        "",
-                        "## Commit summary",
-                        commit.summary,
-                        "",
-                        "Merge strategy: squash",
-                      ].join("\n");
+                      const prBody = await renderPullRequestBody({
+                        repoPath: selectedRepo.repoPath,
+                        sessionDir: cfg.sessionDir,
+                        task: applyLabel,
+                        agentSummary: runOutput,
+                        commitSummary: commit.summary,
+                        branch,
+                        baseBranch: selectedRepo.repoBaseBranch,
+                        repoName: selectedRepo.repoName,
+                        repoOwner: selectedRepo.repoOwner,
+                      });
 
                       try {
                         prUrl = await deps.createPullRequest(selectedRepo, branch, prTitle, prBody, token);

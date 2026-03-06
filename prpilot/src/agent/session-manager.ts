@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   createAgentSession,
+  createBashTool,
   createCodingTools,
   createReadOnlyTools,
   SessionManager,
@@ -42,7 +43,9 @@ export class PiSessionManager {
     recordPiSessionGet(writable ? "rw" : "ro", "miss");
     logger.debug("session cache miss", { key });
 
-    const tools = writable ? createCodingTools(repoPath) : createReadOnlyTools(repoPath);
+    const tools = writable
+      ? createCodingTools(repoPath)
+      : [...createReadOnlyTools(repoPath), createBashTool(repoPath)];
     const index = await this.readIndex();
     const existingFile = index[key];
     logger.debug("session resolving", {

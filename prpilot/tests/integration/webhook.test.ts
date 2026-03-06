@@ -92,6 +92,15 @@ async function waitForTaskHistoryEntry(sessionDir: string, needle: string): Prom
   throw new Error(`Timed out waiting for task history entry: ${needle}`);
 }
 
+async function waitForCondition(condition: () => boolean, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 describe("telegram webhook integration", () => {
   beforeEach(() => {
     resetMetricsRegistry();
@@ -235,6 +244,57 @@ describe("telegram webhook integration", () => {
     );
   });
 
+  it("runs apply from the latest chat summary", async () => {
+    const telegram = mockTelegram();
+    const piRunner = {
+      run: vi.fn(async () => "run output"),
+      getLastChatSummary: vi.fn(async () => "previous chat summary"),
+    };
+    const deps = {
+      telegram,
+      piRunner,
+      sessionManager: { abort: vi.fn(async () => false) },
+      tokenProvider: {
+        getToken: vi.fn(async () => "token"),
+        forceRefresh: vi.fn(async () => "token-2"),
+      },
+      createFeatureBranch: vi.fn(async () => "agent/branch"),
+      commitAll: vi.fn(async () => ({ changed: true, summary: "summary" })),
+      pushBranch: vi.fn(async () => {}),
+      createPullRequest: vi.fn(async () => "https://github.com/owner/repo/pull/1"),
+      execCommand: vi.fn(async (_command: string, args: string[]) => {
+        if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { code: 0, stdout: "true\n", stderr: "" };
+        if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
+        if (args[0] === "ls-remote") return { code: 0, stdout: "abc\n", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      }),
+    };
+
+    const { app } = createApp(testConfig(), deps);
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("design a change"));
+
+    await waitForCondition(() => piRunner.run.mock.calls.length > 0);
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/apply"));
+
+    await waitForCondition(() => piRunner.run.mock.calls.length > 1);
+
+    expect(piRunner.run.mock.calls[1]).toHaveLength(5);
+    expect(piRunner.run.mock.calls[1][1]).toBe("apply");
+  });
+
   it("stops apply when no commits are ahead of base", async () => {
     const telegram = mockTelegram();
     const deps = makeApplyReadyDeps(telegram, (args) => {
@@ -302,6 +362,94 @@ describe("telegram webhook integration", () => {
       99,
       expect.stringContaining("Remote branch agent/branch not found after push; refusing to create PR."),
       "HTML",
+    );
+  });
+
+  it("uses repo template when creating apply PR body", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-template-integration-"));
+    const reposRoot = path.join(root, "repos");
+    const sessionDir = path.join(root, "session");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(path.join(repoPath, ".prpilot"), { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(repoPath, ".prpilot", "pr-body-template.md"),
+      "task={{task}}\nsummary={{agent_summary}}\ncommit={{commit_summary}}\nbranch={{branch}}\nbase={{base_branch}}\nrepo={{repo_owner}}/{{repo_name}}",
+      "utf8",
+    );
+
+    const telegram = mockTelegram();
+    const deps = makeApplyReadyDeps(telegram, (args) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { code: 0, stdout: "true\n", stderr: "" };
+      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
+      if (args[0] === "ls-remote") return { code: 0, stdout: "abc\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+
+    const { app } = createApp(testConfig({ reposRoot, sessionDir }), deps);
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    const response = await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/apply add tests"));
+
+    expect(response.status).toBe(200);
+    await waitForCondition(() => deps.createPullRequest.mock.calls.length > 0);
+    expect(deps.createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ repoOwner: "owner", repoName: "repo-one", repoPath }),
+      "agent/branch",
+      expect.stringContaining("add tests"),
+      expect.stringContaining("task=add tests"),
+      "token",
+    );
+  });
+
+  it("uses global template fallback when repo template is absent", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-template-integration-"));
+    const reposRoot = path.join(root, "repos");
+    const sessionDir = path.join(root, "session");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(repoPath, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "pr-body-template.md"),
+      "global-task={{task}}\nrepo={{repo_owner}}/{{repo_name}}\nbase={{base_branch}}",
+      "utf8",
+    );
+
+    const telegram = mockTelegram();
+    const deps = makeApplyReadyDeps(telegram, (args) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { code: 0, stdout: "true\n", stderr: "" };
+      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
+      if (args[0] === "ls-remote") return { code: 0, stdout: "abc\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+
+    const { app } = createApp(testConfig({ reposRoot, sessionDir }), deps);
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    const response = await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/apply add tests"));
+
+    expect(response.status).toBe(200);
+    await waitForCondition(() => deps.createPullRequest.mock.calls.length > 0);
+    expect(deps.createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ repoOwner: "owner", repoName: "repo-one", repoPath }),
+      "agent/branch",
+      expect.stringContaining("add tests"),
+      expect.stringContaining("global-task=add tests"),
+      "token",
     );
   });
 

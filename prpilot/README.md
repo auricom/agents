@@ -112,6 +112,28 @@ PRPilot validates both:
 7. Open PR to `main`
 8. Reset repo to clean `origin/main`
 
+## PR body templates
+
+PRPilot can render PR bodies from user-imported templates, loaded on every `/apply` run (no restart required).
+
+A bundled starter template is included in this repository at `pr-body-template.md`.
+
+Resolution order:
+1. Repo override: `<repoPath>/.prpilot/pr-body-template.md`
+2. Global fallback: `<SESSION_DIR>/pr-body-template.md`
+3. Built-in default template
+
+Supported placeholders:
+- `{{task}}`
+- `{{agent_summary}}`
+- `{{commit_summary}}`
+- `{{branch}}`
+- `{{base_branch}}`
+- `{{repo_name}}`
+- `{{repo_owner}}`
+
+If template loading or rendering fails, PRPilot logs a warning and falls back to the built-in default body so PR creation can continue.
+
 ## Observability
 
 ### Health endpoints
@@ -149,15 +171,6 @@ Pi agent behavior metrics:
 - `pi_sessions_active`
 - `pi_session_index_io_errors_total{op}` (`op`: `read|write`)
 - `pi_agents_md_load_failures_total`
-
-Superpowers sync metrics:
-- `superpowers_skills_fetch_success_total`
-- `superpowers_skills_fetch_failure_total`
-- `superpowers_skills_fetch_last_success_timestamp_seconds`
-- `superpowers_skills_fetch_last_failure_timestamp_seconds`
-- `superpowers_skills_fetch_last_attempt_timestamp_seconds`
-- `superpowers_skills_fetch_last_duration_seconds`
-- `superpowers_skills_fetch_last_status` (`1` success, `0` failure)
 
 ### Suggested alerts (when you add alerting)
 
@@ -212,28 +225,6 @@ If a repository should be safely operated by PRPilot, organize it with these con
 - **Scope control**
   - only include repos in `REPO_NAMES` that you explicitly allow PRPilot to modify
   - if a repo is read-only for experimentation, keep it out of `REPO_NAMES`
-
-## `using-superpowers` skill behavior
-
-PRPilot prepends a superpowers prelude to every Pi run (`chat` and `apply`) instructing the agent to load:
-
-```bash
-npx openskills read using-superpowers
-```
-
-This enforces a skill-first workflow before any implementation action.
-
-Recommendations for target repos:
-
-- keep `AGENTS.md` aligned with this behavior (do not add conflicting instructions that bypass skills)
-- ensure skill references in `AGENTS.md` are valid and up to date
-- keep superpowers skills synced in the runtime environment so `using-superpowers` is available when invoked
-
-Minimal `AGENTS.md` expectation for PRPilot targets:
-
-- repository-specific constraints/instructions
-- available skills list (including `using-superpowers`)
-- any required verification commands before completion
 
 ## Troubleshooting
 

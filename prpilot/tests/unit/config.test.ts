@@ -17,6 +17,12 @@ function applyBaseEnv(): void {
     GITHUB_APP_ID: "123",
     GITHUB_APP_PRIVATE_KEY_PEM: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
   } as NodeJS.ProcessEnv;
+
+  delete process.env.LOG_LEVEL;
+  delete process.env.SESSION_DIR;
+  delete process.env.NODE_ENV;
+  delete process.env.GITHUB_APP_PRIVATE_KEY_PATH;
+  delete process.env.GITHUB_APP_INSTALLATION_ID;
 }
 
 afterEach(() => {

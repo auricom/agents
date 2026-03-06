@@ -4,11 +4,18 @@ import type { RunMode } from "../types.js";
 import { recordPiAgentsMdLoadFailure, recordPiRun, type PiRunResult } from "../metrics/pi-agent-metrics.js";
 import { logger } from "../utils/logger.js";
 import { PiSessionManager } from "./session-manager.js";
+import { buildTelegramAgentPrompt } from "./telegram-prompt-policy.js";
 
 export class PiRunner {
   constructor(private readonly sessions: PiSessionManager) {}
 
-  async run(chatId: number, mode: RunMode, task: string, repoName: string, repoPath: string): Promise<string> {
+  async run(
+    chatId: number,
+    mode: RunMode,
+    task: string,
+    repoName: string,
+    repoPath: string,
+  ): Promise<string> {
     const writable = mode === "apply";
     const startedAtNs = process.hrtime.bigint();
     let result: PiRunResult = "error";
@@ -61,40 +68,31 @@ export class PiRunner {
     return entry.session.getLastAssistantText() ?? null;
   }
 
-  private async buildPrompt(mode: RunMode, task: string, repoName: string, repoPath: string): Promise<string> {
+  private async buildPrompt(
+    mode: RunMode,
+    task: string,
+    repoName: string,
+    repoPath: string,
+  ): Promise<string> {
     const agentsInstructions = await this.loadAgentsInstructions(repoPath);
-    const superpowersPrelude = [
-      "Before doing anything else, run this command and follow the loaded instructions for this response:",
-      "npx openskills read using-superpowers",
-      "You must apply that skill workflow before any further action.",
-      "",
-    ].join("\n");
 
     if (mode === "chat") {
-      return [
-        superpowersPrelude,
-        `Repository selected: ${repoName}`,
-        "Primary instructions for this repository (from AGENTS.md):",
+      return buildTelegramAgentPrompt({
+        repoName,
         agentsInstructions,
-        "",
-        "User message from Telegram:",
+        taskLabel: "User message from Telegram:",
         task,
-        "",
-        "Respond for Telegram. Keep it concise and actionable.",
-      ].join("\n");
+        responseInstruction: "Respond for Telegram. Keep it concise and actionable.",
+      });
     }
 
-    return [
-      superpowersPrelude,
-      `Repository selected: ${repoName}`,
-      "Primary instructions for this repository (from AGENTS.md):",
+    return buildTelegramAgentPrompt({
+      repoName,
       agentsInstructions,
-      "",
-      "Apply-mode task:",
+      taskLabel: "Apply-mode task:",
       task,
-      "",
-      "Execute the task directly in the repository and summarize results for Telegram.",
-    ].join("\n");
+      responseInstruction: "Execute the task directly in the repository and summarize results for Telegram.",
+    });
   }
 
   private async loadAgentsInstructions(repoPath: string): Promise<string> {
