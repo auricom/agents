@@ -2,6 +2,7 @@ export type BotCommand =
   | { type: "status" }
   | { type: "tasks" }
   | { type: "task"; index?: number }
+  | { type: "select"; index?: number }
   | { type: "repo"; name?: string }
   | { type: "chat"; text: string }
   | { type: "apply"; task?: string }
@@ -17,6 +18,7 @@ export function parseCommand(text: string): BotCommand {
   if (trimmed === "/repo") return { type: "repo" };
   if (trimmed === "/abort") return { type: "abort" };
   if (trimmed === "/apply") return { type: "apply" };
+  if (trimmed === "/select") return { type: "select" };
 
   if (trimmed.startsWith("/task ")) {
     const maybeIndex = Number.parseInt(trimmed.slice(6).trim(), 10);
@@ -24,6 +26,14 @@ export function parseCommand(text: string): BotCommand {
       return { type: "task", index: maybeIndex };
     }
     return { type: "task" };
+  }
+
+  if (trimmed.startsWith("/select ")) {
+    const maybeIndex = Number.parseInt(trimmed.slice(8).trim(), 10);
+    if (Number.isFinite(maybeIndex) && maybeIndex >= 0) {
+      return { type: "select", index: maybeIndex };
+    }
+    return { type: "select" };
   }
 
   if (trimmed.startsWith("/repo ")) {

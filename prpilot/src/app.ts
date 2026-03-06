@@ -111,6 +111,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
   const selectedRepoStorePath = path.join(cfg.sessionDir, "selected-repos.json");
   const chatIntentStorePath = path.join(cfg.sessionDir, "chat-intents.json");
   const selectedRepoByChatId = new Map<number, string>();
+  const selectedTaskByChatId = new Map<number, TaskEntry>();
   const lastChatIntentByChatRepo = new Map<string, string>();
   const selectedRepoLoad = loadSelectedRepos(selectedRepoStorePath, cfg.repoNames, selectedRepoByChatId);
   const chatIntentLoad = loadChatIntents(chatIntentStorePath, lastChatIntentByChatRepo);
@@ -216,11 +217,12 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   const selectedRepoName = selectedRepoByChatId.get(chatId) ?? null;
                   const selectedRepo = selectedRepoName ? resolveRepoContext(cfg, selectedRepoName) : null;
                   const branch = selectedRepo ? await deps.currentBranch(selectedRepo) : "none";
-                  const taskLine = currentTask
+                  const activeTaskForStatus = selectedTaskByChatId.get(chatId) ?? currentTask;
+                  const taskLine = activeTaskForStatus
                     ? formatTelegramRow(
                       "🧭",
                       "Task",
-                      `${formatTaskStatus(currentTask.status)} — ${escapeHtml(currentTask.title)}`,
+                      `${formatTaskStatus(activeTaskForStatus.status)} — ${escapeHtml(activeTaskForStatus.title)}`,
                     )
                     : formatTelegramRow("🧭", "Task", "none");
                   const repoLine = selectedRepo
@@ -280,6 +282,80 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   await deps.telegram.sendMessage(
                     chatId,
                     formatTelegramMessage("🔎", `Task #${command.index}`, formatTaskDetailLines(entry)),
+                    "HTML",
+                  );
+                  break;
+                }
+
+                case "select": {
+                  if (command.index == null) {
+                    const active = selectedTaskByChatId.get(chatId);
+                    if (active) {
+                      await deps.telegram.sendMessage(
+                        chatId,
+                        formatTelegramMessage("📌", "Active Task", [
+                          `${escapeHtml(active.title)} — ${formatTaskStatus(active.status)}`,
+                          `Deselect with ${formatCode("/select 0")}`,
+                        ]),
+                        "HTML",
+                      );
+                    } else {
+                      await deps.telegram.sendMessage(
+                        chatId,
+                        formatTelegramMessage("ℹ️", "No Active Task", [
+                          `Use ${formatCode("/select <number>")} to pick a planning task.`,
+                          `List tasks with ${formatCode("/tasks")}`,
+                        ]),
+                        "HTML",
+                      );
+                    }
+                    break;
+                  }
+
+                  if (command.index === 0) {
+                    selectedTaskByChatId.delete(chatId);
+                    currentTask = null;
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("✅", "Task Deselected"),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  const selectEntry = taskHistory[command.index - 1];
+                  if (!selectEntry) {
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("❌", "Task Not Found", [
+                        `No task #${command.index}.`,
+                        `List tasks with ${formatCode("/tasks")}`,
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  if (selectEntry.status !== "planning") {
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("❌", "Cannot Select Task", [
+                        `Task #${command.index} is ${formatTaskStatus(selectEntry.status)}, not planning.`,
+                        `Only planning tasks can be continued or applied.`,
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  selectedTaskByChatId.set(chatId, selectEntry);
+                  currentTask = selectEntry;
+                  await deps.telegram.sendMessage(
+                    chatId,
+                    formatTelegramMessage("📌", "Task Selected", [
+                      `<b>${escapeHtml(selectEntry.title)}</b>`,
+                      `Send a message to continue planning, or ${formatCode("/apply")} to execute.`,
+                    ]),
                     "HTML",
                   );
                   break;
@@ -365,9 +441,14 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     break;
                   }
 
-                  const entry = createTaskEntry(selectedRepo.repoName, command.text, "planning");
+                  const activeTask = selectedTaskByChatId.get(chatId);
+                  const entry = (activeTask && activeTask.status === "planning" && activeTask.repoName === selectedRepo.repoName)
+                    ? activeTask
+                    : createTaskEntry(selectedRepo.repoName, command.text, "planning");
                   currentTask = entry;
-                  addTaskHistory(taskHistory, entry);
+                  if (!taskHistory.includes(entry)) {
+                    addTaskHistory(taskHistory, entry);
+                  }
                   markTaskHistoryDirty();
                   rememberChatIntent(lastChatIntentByChatRepo, chatId, selectedRepo.repoName, command.text);
                   await saveChatIntents(chatIntentStorePath, lastChatIntentByChatRepo);
@@ -449,12 +530,26 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   let applyLabel: string;
                   let summarySource: string | null = null;
 
+                  const activeTask = selectedTaskByChatId.get(chatId);
+
                   if (command.task) {
                     applyLabel = command.task;
                     summarySource = command.task;
                     applyPrompt = [
                       "Apply the requested changes directly in the selected repository.",
                       `Requested task: ${command.task}`,
+                    ].join("\n");
+                  } else if (activeTask && activeTask.status === "planning" && activeTask.repoName === selectedRepo.repoName) {
+                    applyLabel = activeTask.title;
+                    const chatSummary = await deps.piRunner.getLastChatSummary(
+                      chatId,
+                      selectedRepo.repoName,
+                      selectedRepo.repoPath,
+                    );
+                    summarySource = chatSummary ?? activeTask.summary ?? activeTask.label;
+                    applyPrompt = [
+                      "Apply the changes described in the prior conversation.",
+                      chatSummary ? `Conversation summary:\n${chatSummary}` : `Task: ${activeTask.label}`,
                     ].join("\n");
                   } else {
                     const chatSummary = await deps.piRunner.getLastChatSummary(
@@ -466,7 +561,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       await deps.telegram.sendMessage(
                         chatId,
                         formatTelegramMessage("❓", "No Plan Yet", [
-                          "Describe what you want to change first.",
+                          `Describe what you want first, or use ${formatCode("/select <number>")} to pick a planning task.`,
                         ]),
                         "HTML",
                       );
@@ -495,7 +590,9 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     ].join("\n");
                   }
 
-                  const existingPlannedTask = findMergeablePlannedTask(taskHistory, selectedRepo.repoName, applyLabel);
+                  const existingPlannedTask = (activeTask && activeTask.status === "planning" && activeTask.repoName === selectedRepo.repoName)
+                    ? activeTask
+                    : findMergeablePlannedTask(taskHistory, selectedRepo.repoName, applyLabel);
                   const applyEntry = existingPlannedTask
                     ?? createTaskEntry(
                       selectedRepo.repoName,
@@ -503,7 +600,6 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       "planning",
                       summarySource ?? applyLabel,
                     );
-                  applyEntry.status = "planning";
                   applyEntry.summary = summarizeTaskText(summarySource ?? applyLabel);
                   currentTask = applyEntry;
                   if (!taskHistory.includes(applyEntry)) {
@@ -648,6 +744,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     }
                     applyLock = false;
                     applyLockSince = null;
+                    selectedTaskByChatId.delete(chatId);
                     try {
                       await resetRepoToMain(selectedRepo, deps.execCommand);
                     } catch (error) {
@@ -685,7 +782,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   await deps.telegram.sendMessage(
                     chatId,
                     formatTelegramMessage("❓", "Unknown Command", [
-                      `Use ${formatCode("/repo")}, ${formatCode("/status")}, ${formatCode("/tasks")}, ${formatCode("/task <number>")}, ${formatCode("/apply")}, ${formatCode("/abort")} or type your request.`,
+                      `Use ${formatCode("/repo")}, ${formatCode("/status")}, ${formatCode("/tasks")}, ${formatCode("/task <n>")}, ${formatCode("/select <n>")}, ${formatCode("/apply")}, ${formatCode("/abort")} or type your request.`,
                     ]),
                     "HTML",
                   );

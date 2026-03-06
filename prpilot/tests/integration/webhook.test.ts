@@ -589,6 +589,148 @@ describe("telegram webhook integration", () => {
     );
   });
 
+  it("selects a planning task and continues it with subsequent messages", async () => {
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const piRunner = {
+      run: vi.fn(async () => "Authelia replicas analysis complete"),
+      getLastChatSummary: vi.fn(async () => null),
+    };
+    const { app } = createApp(testConfig(), {
+      telegram,
+      execCommand,
+      piRunner,
+    });
+
+    // Select repo and send initial message to create a planning task
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("set authelia replicas to 6"));
+
+    await waitForCondition(() => piRunner.run.mock.calls.length > 0);
+
+    // Select task #1
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 1"));
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      99,
+      expect.stringContaining("📌 <b>Task Selected</b>"),
+      "HTML",
+    );
+
+    // Send follow-up message — should continue the same task, not create a new one
+    piRunner.run.mockResolvedValueOnce("Updated plan with 6 replicas and resource limits");
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("also adjust the resource limits"));
+
+    await waitForCondition(() => piRunner.run.mock.calls.length > 1);
+
+    // Check /tasks — should show only 1 task, not 2
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/tasks"));
+
+    const tasksCall = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).includes("🗂️ <b>Tasks</b>"),
+    );
+    expect(tasksCall).toBeDefined();
+    const tasksHtml = tasksCall![1] as string;
+    // Should have exactly one "1." entry and no "2."
+    expect(tasksHtml).toContain("1.");
+    expect(tasksHtml).not.toContain("2.");
+  });
+
+  it("rejects selecting a non-planning task", async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-select-"));
+    const appliedHistory = [
+      {
+        repoName: "repo-one",
+        label: "deploy app",
+        title: "Deploy app",
+        status: "applied",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, "task-history.json"), JSON.stringify(appliedHistory));
+
+    const telegram = mockTelegram();
+    const { app } = createApp(testConfig({ sessionDir }), {
+      telegram,
+      currentBranch: vi.fn(async () => "main"),
+    });
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 1"));
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      99,
+      expect.stringContaining("Cannot Select Task"),
+      "HTML",
+    );
+  });
+
+  it("deselects task with /select 0", async () => {
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const { app } = createApp(testConfig(), {
+      telegram,
+      execCommand,
+      piRunner: { run: vi.fn(async () => "Plan output"), getLastChatSummary: vi.fn(async () => null) },
+    });
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("some task"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 1"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 0"));
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      99,
+      expect.stringContaining("Task Deselected"),
+      "HTML",
+    );
+  });
+
   it("migrates legacy task history entries on load", async () => {
     const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-migrate-"));
     const legacyHistory = [

@@ -23,6 +23,22 @@ describe("parseCommand", () => {
     expect(parseCommand("/task 0")).toEqual({ type: "task" });
   });
 
+  it("parses /select", () => {
+    expect(parseCommand("/select")).toEqual({ type: "select" });
+  });
+
+  it("parses /select with index", () => {
+    expect(parseCommand("/select 3")).toEqual({ type: "select", index: 3 });
+  });
+
+  it("parses /select 0 for deselect", () => {
+    expect(parseCommand("/select 0")).toEqual({ type: "select", index: 0 });
+  });
+
+  it("treats invalid /select index as usage request", () => {
+    expect(parseCommand("/select abc")).toEqual({ type: "select" });
+  });
+
   it("parses /repo", () => {
     expect(parseCommand("/repo")).toEqual({ type: "repo" });
   });
