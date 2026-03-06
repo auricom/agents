@@ -8,13 +8,15 @@ It is designed for a single authorized Telegram user, multi-repo selection, and 
 
 - Receives Telegram updates via webhook
 - Supports repository selection per chat (`/repo <name>`)
-- Supports planning/chat runs (free-text)
-- Supports apply runs (`/apply`) that:
+- Supports **planning** runs (free-text) in read-only mode — the agent can inspect files but cannot modify the repository
+- Supports task selection (`/select <n>`) to continue planning or apply a task
+- Supports **apply** runs (`/apply`) that:
   - create a feature branch
-  - run the agent
+  - run the agent in read-write mode
   - commit changes
   - push branch
   - open a PR to `main`
+- Formats all Telegram responses as HTML (Markdown from the agent is converted automatically)
 - Uses GitHub App auth (JWT + installation token flow)
 - Exposes health + Prometheus metrics endpoints
 
@@ -81,36 +83,57 @@ PRPilot validates both:
 
 ## Telegram command guide
 
-- `/repo` — show current repo + supported repos
-- `/repo <name>` — select repo for this chat
-- `/status` — show health, selected repo, branch, current task
-- `/tasks` — show recent task list
-- `/task <number>` — show detailed task entry
-- `/apply` — apply latest chat plan
-- `/apply <task>` — apply explicit task directly
-- `/abort` — abort current run
-- free-text — starts a chat/planning run
+| Command | Description |
+|---------|-------------|
+| `/repo` | Show current repo and supported repos |
+| `/repo <name>` | Select repo for this chat |
+| `/status` | Show health, selected repo, branch, active task |
+| `/tasks` | Show recent task list |
+| `/task <n>` | Show detailed task entry |
+| `/select <n>` | Select a planning task to continue or apply |
+| `/select 0` | Deselect the active task |
+| `/select` | Show which task is currently active |
+| `/apply` | Apply the active task (or infer from chat context) |
+| `/apply <task>` | Apply an explicit task directly |
+| `/abort` | Abort the current run |
+| free-text | Start or continue a planning run |
+
+### Task lifecycle
+
+Tasks have two primary statuses: **planning** and **applied**.
+
+1. Send a free-text message → creates a new task in `planning` status
+2. Use `/select <n>` to pick an existing planning task → subsequent messages continue that task
+3. Use `/apply` → the selected (or inferred) task transitions to `applied` once the PR is created
+4. Task selection clears after apply completes
+
+Additional terminal statuses: `failed`, `no-changes`, `aborted`.
 
 ## Execution flow
 
-### Chat run (free-text)
+### Planning run (free-text)
 
 1. Require selected repo (`/repo <name>`)
 2. Reset repo to clean `origin/main`
-3. Run Pi in `chat` mode
-4. Store summary in task history
-5. Reset repo to clean `origin/main`
+3. Run Pi in **read-only** `chat` mode (agent has `read`, `grep`, `find`, `ls` tools only)
+4. Create or update task entry in history (if a task is selected via `/select`, the same entry is updated)
+5. Derive a concise task title from the agent response
+6. Reset repo to clean `origin/main`
 
 ### Apply run (`/apply`)
 
 1. Require selected repo
 2. Reset repo to clean `origin/main`
-3. Resolve task prompt (explicit task or last chat summary)
+3. Resolve task prompt:
+   - From selected task (via `/select`) if active
+   - From explicit argument (`/apply <task>`)
+   - Inferred from last chat summary
 4. Create feature branch
-5. Run Pi in `apply` mode
+5. Run Pi in **read-write** `apply` mode (full coding tools)
 6. Commit and push changes
 7. Open PR to `main`
-8. Reset repo to clean `origin/main`
+8. Task transitions to `applied`; selection clears
+9. Reset repo to clean `origin/main`
 
 ## PR body templates
 
