@@ -499,6 +499,49 @@ describe("telegram webhook integration", () => {
     );
   });
 
+  it("converts markdown to HTML in chat responses", async () => {
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const markdownOutput = "# Done\nUpdated **replicas** from `1` to `6`.\n```yaml\nreplicas: 6\n```";
+    const { app } = createApp(testConfig(), {
+      telegram,
+      execCommand,
+      piRunner: { run: vi.fn(async () => markdownOutput), getLastChatSummary: vi.fn(async () => null) },
+    });
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+
+    await request(app)
+      .post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("set replicas to 6"));
+
+    await waitForCondition(() => {
+      const calls = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls;
+      return calls.some((c: unknown[]) => typeof c[1] === "string" && (c[1] as string).includes("<b>Done</b>"));
+    });
+
+    const chatResponseCall = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).includes("<b>Done</b>"),
+    );
+    expect(chatResponseCall).toBeDefined();
+    const html = chatResponseCall![1] as string;
+    expect(html).toContain("<b>Done</b>");
+    expect(html).toContain("<b>replicas</b>");
+    expect(html).toContain("<code>1</code>");
+    expect(html).toContain("<pre><code>replicas: 6</code></pre>");
+    expect(html).not.toContain("**");
+    expect(html).not.toContain("```");
+  });
+
   it("persists tasks history across app restart and keeps latest entries", async () => {
     const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "prpilot-tasks-"));
     const execCommand = vi.fn(async (_command: string, args: string[]) => {

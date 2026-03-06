@@ -16,6 +16,7 @@ import type { AppConfig, RepoContext } from "./types.js";
 import { assertSuccess, execCommand } from "./utils/exec.js";
 import { logger } from "./utils/logger.js";
 import { createHttpMetricsMiddleware } from "./metrics/http-metrics.js";
+import { markdownToHtml } from "./utils/markdown.js";
 import { registerHealthRoutes } from "./web/health.js";
 
 export interface TelegramClient {
@@ -384,7 +385,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                     );
                     entry.summary = summarizeTaskText(output);
                     markTaskHistoryDirty();
-                    await deps.telegram.sendMessage(chatId, truncateTelegram(output), "HTML");
+                    await deps.telegram.sendMessage(chatId, markdownToHtml(truncateTelegram(output)), "HTML");
                   } finally {
                     try {
                       await resetRepoToMain(selectedRepo, deps.execCommand);
@@ -568,7 +569,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       await deps.telegram.sendMessage(
                         chatId,
                         formatTelegramMessage("ℹ️", "No Changes Created", [
-                          truncateTelegram(runOutput),
+                          markdownToHtml(truncateTelegram(runOutput)),
                         ]),
                         "HTML",
                       );
