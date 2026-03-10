@@ -9,6 +9,7 @@ export type BotCommand =
   | { type: "chat"; text: string }
   | { type: "apply"; task?: string }
   | { type: "abort" }
+  | { type: "brainstorm"; state?: "on" | "off" }
   | { type: "unknown"; raw: string };
 
 export function parseCommand(text: string): BotCommand {
@@ -23,6 +24,7 @@ export function parseCommand(text: string): BotCommand {
   if (trimmed === "/select") return { type: "select" };
   if (trimmed === "/new") return { type: "new" };
   if (trimmed === "/delete") return { type: "delete" };
+  if (trimmed === "/brainstorm") return { type: "brainstorm" };
 
   if (trimmed.startsWith("/task ")) {
     const maybeIndex = Number.parseInt(trimmed.slice(6).trim(), 10);
@@ -54,6 +56,14 @@ export function parseCommand(text: string): BotCommand {
 
   if (trimmed.startsWith("/apply ")) {
     return { type: "apply", task: trimmed.slice(7).trim() };
+  }
+
+  if (trimmed.startsWith("/brainstorm ")) {
+    const state = trimmed.slice(12).trim();
+    if (state === "on" || state === "off") {
+      return { type: "brainstorm", state };
+    }
+    return { type: "unknown", raw: text };
   }
 
   if (trimmed.startsWith("/")) {
