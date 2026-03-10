@@ -64,6 +64,22 @@ describe("parseCommand", () => {
     expect(parseCommand("/repo home-ops")).toEqual({ type: "repo", name: "home-ops" });
   });
 
+  it("parses /brainstorm", () => {
+    expect(parseCommand("/brainstorm")).toEqual({ type: "brainstorm" });
+  });
+
+  it("parses /brainstorm on", () => {
+    expect(parseCommand("/brainstorm on")).toEqual({ type: "brainstorm", state: "on" });
+  });
+
+  it("parses /brainstorm off", () => {
+    expect(parseCommand("/brainstorm off")).toEqual({ type: "brainstorm", state: "off" });
+  });
+
+  it("treats invalid /brainstorm suffix as unknown", () => {
+    expect(parseCommand("/brainstorm maybe")).toEqual({ type: "unknown", raw: "/brainstorm maybe" });
+  });
+
   it("/arm is treated as unknown command", () => {
     expect(parseCommand("/arm")).toEqual({ type: "unknown", raw: "/arm" });
     expect(parseCommand("/arm 15")).toEqual({ type: "unknown", raw: "/arm 15" });
