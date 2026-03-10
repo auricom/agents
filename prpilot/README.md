@@ -140,6 +140,8 @@ Brainstorming skill resolution order:
 2. Global fallback: `<SESSION_DIR>/templates/brainstorming-skill.md`
 3. Built-in default skill text
 
+A bundled starter brainstorming skill is included in this repository at `templates/brainstorming-skill.md`.
+
 ### Planning run (free-text)
 
 1. Require selected repo (`/repo <name>`)
@@ -170,7 +172,9 @@ Brainstorming skill resolution order:
 
 PRPilot can render PR bodies from user-imported templates, loaded on every `/apply` run (no restart required).
 
-A bundled starter template is included in this repository at `pr-body-template.md`.
+Bundled starter templates are included in this repository under `templates/`:
+- `templates/pr-body-template.md`
+- `templates/brainstorming-skill.md`
 
 Resolution order:
 1. Repo override: `<repoPath>/.prpilot/pr-body-template.md`
