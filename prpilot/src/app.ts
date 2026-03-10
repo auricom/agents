@@ -16,6 +16,8 @@ import type { AppConfig, RepoContext } from "./types.js";
 import { assertSuccess, execCommand } from "./utils/exec.js";
 import { logger } from "./utils/logger.js";
 import { createHttpMetricsMiddleware } from "./metrics/http-metrics.js";
+import { recordBrainstormTaskCreated, recordBrainstormToggle } from "./metrics/pi-agent-metrics.js";
+import { resolveBrainstormingSkill, type BrainstormingSkillSource } from "./skills/brainstorming-skill.js";
 import { markdownToHtml } from "./utils/markdown.js";
 import { registerHealthRoutes } from "./web/health.js";
 
@@ -57,6 +59,8 @@ interface TaskEntry {
   status: TaskStatus;
   summary?: string;
   createdAt: string;
+  brainstormingEnabled: boolean;
+  brainstormingSkillSource?: BrainstormingSkillSource;
 }
 
 interface AppDeps {
@@ -112,6 +116,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
   const chatIntentStorePath = path.join(cfg.sessionDir, "chat-intents.json");
   const selectedRepoByChatId = new Map<number, string>();
   const selectedTaskByChatId = new Map<number, TaskEntry>();
+  const brainstormNextTaskByChatId = new Map<number, boolean>();
   const lastChatIntentByChatRepo = new Map<string, string>();
   const selectedRepoLoad = loadSelectedRepos(selectedRepoStorePath, cfg.repoNames, selectedRepoByChatId);
   const chatIntentLoad = loadChatIntents(chatIntentStorePath, lastChatIntentByChatRepo);
@@ -474,6 +479,48 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   break;
                 }
 
+                case "brainstorm": {
+                  if (command.state === "on") {
+                    brainstormNextTaskByChatId.set(chatId, true);
+                    recordBrainstormToggle("on");
+                    logger.debug("brainstorming armed for next new task", { chatId });
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("🧠", "Brainstorming Armed", [
+                        "Applies to the next new planning task only.",
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  if (command.state === "off") {
+                    brainstormNextTaskByChatId.delete(chatId);
+                    recordBrainstormToggle("off");
+                    logger.debug("brainstorming cleared for next new task", { chatId });
+                    await deps.telegram.sendMessage(
+                      chatId,
+                      formatTelegramMessage("🧠", "Brainstorming Cleared", [
+                        "The next new planning task will use normal planning.",
+                      ]),
+                      "HTML",
+                    );
+                    break;
+                  }
+
+                  const armed = brainstormNextTaskByChatId.get(chatId) === true;
+                  await deps.telegram.sendMessage(
+                    chatId,
+                    formatTelegramMessage("🧠", "Brainstorming", [
+                      armed
+                        ? "Armed for the next new planning task."
+                        : "Off for the next new planning task.",
+                    ]),
+                    "HTML",
+                  );
+                  break;
+                }
+
                 case "chat": {
                   const selectedRepo = requireSelectedRepo(chatId, selectedRepoByChatId, cfg);
                   if (!selectedRepo) {
@@ -502,9 +549,32 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   }
 
                   const activeTask = selectedTaskByChatId.get(chatId);
-                  const entry = (activeTask && activeTask.status === "planning" && activeTask.repoName === selectedRepo.repoName)
-                    ? activeTask
+                  const isContinuingSelectedTask = Boolean(
+                    activeTask && activeTask.status === "planning" && activeTask.repoName === selectedRepo.repoName,
+                  );
+                  let entry = isContinuingSelectedTask
+                    ? activeTask!
                     : createTaskEntry(selectedRepo.repoName, command.text, "planning");
+
+                  if (!isContinuingSelectedTask && brainstormNextTaskByChatId.get(chatId) === true) {
+                    const resolvedSkill = await resolveBrainstormingSkill({
+                      repoPath: selectedRepo.repoPath,
+                      sessionDir: cfg.sessionDir,
+                    });
+                    entry = {
+                      ...entry,
+                      brainstormingEnabled: true,
+                      brainstormingSkillSource: resolvedSkill.source,
+                    };
+                    brainstormNextTaskByChatId.delete(chatId);
+                    recordBrainstormTaskCreated(resolvedSkill.source);
+                    logger.debug("brainstorming consumed for new task", {
+                      chatId,
+                      repoName: selectedRepo.repoName,
+                      source: resolvedSkill.source,
+                    });
+                  }
+
                   currentTask = entry;
                   if (!taskHistory.includes(entry)) {
                     addTaskHistory(taskHistory, entry);
@@ -994,6 +1064,8 @@ function createTaskEntry(
     status,
     summary: summary ? summarizeTaskText(summary) : undefined,
     createdAt: new Date().toISOString(),
+    brainstormingEnabled: false,
+    brainstormingSkillSource: undefined,
   };
 }
 
@@ -1008,7 +1080,8 @@ function addTaskHistory(history: TaskEntry[], entry: TaskEntry): void {
 function formatTaskListLine(entry: TaskEntry, index: number): string {
   const status = formatTaskStatus(entry.status);
   const when = formatTaskRelativeTime(entry.createdAt);
-  return `${index + 1}. <b>${escapeHtml(entry.title)}</b> — ${status} • <code>${escapeHtml(entry.repoName)}</code> • ${escapeHtml(when)}`;
+  const brainstormMarker = entry.brainstormingEnabled ? " • 🧠 brainstorm" : "";
+  return `${index + 1}. <b>${escapeHtml(entry.title)}</b> — ${status} • <code>${escapeHtml(entry.repoName)}</code>${brainstormMarker} • ${escapeHtml(when)}`;
 }
 
 function formatTaskDetailLines(entry: TaskEntry): string[] {
@@ -1019,7 +1092,11 @@ function formatTaskDetailLines(entry: TaskEntry): string[] {
     formatTelegramRow("📌", "Status", status),
     formatTelegramRow("📦", "Repo", formatCode(entry.repoName)),
     formatTelegramRow("🕒", "Created", formatCode(when)),
+    formatTelegramRow("🧠", "Brainstorming", entry.brainstormingEnabled ? "enabled" : "disabled"),
   ];
+  if (entry.brainstormingEnabled && entry.brainstormingSkillSource) {
+    lines.push(formatTelegramRow("📄", "Skill source", escapeHtml(entry.brainstormingSkillSource)));
+  }
   if (entry.summary) {
     lines.push(formatTelegramRow("📝", "Summary", markdownToHtml(truncateOneLine(entry.summary, 1000))));
   }
@@ -1287,6 +1364,8 @@ async function loadTaskHistory(storePath: string, target: TaskEntry[]): Promise<
         status: migrateTaskStatus(entry.status),
         summary: typeof entry.summary === "string" ? entry.summary : undefined,
         createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
+        brainstormingEnabled: entry.brainstormingEnabled === true,
+        brainstormingSkillSource: normalizeBrainstormingSkillSource(entry.brainstormingSkillSource),
       }));
 
     const normalized = migrated
@@ -1314,6 +1393,17 @@ function migrateTaskStatus(raw: unknown): TaskStatus {
       return "planning";
     default:
       return "failed";
+  }
+}
+
+function normalizeBrainstormingSkillSource(raw: unknown): BrainstormingSkillSource | undefined {
+  switch (raw) {
+    case "repo":
+    case "global":
+    case "built-in":
+      return raw;
+    default:
+      return undefined;
   }
 }
 

@@ -974,6 +974,7 @@ describe("telegram webhook integration", () => {
       .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
       .send(makeUpdate("second plain task"));
     await waitForCondition(() => piRunner.run.mock.calls.length > 1);
+    await waitForTaskHistoryEntry(sessionDir, '"label": "second plain task"');
 
     const raw = await fs.readFile(path.join(sessionDir, "task-history.json"), "utf8");
     const history = JSON.parse(raw) as Array<{ label: string; brainstormingEnabled?: boolean }>;
