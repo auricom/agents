@@ -74,6 +74,55 @@ function makeApplyReadyDeps(telegram: TelegramClient, execCommandImpl: (args: st
   };
 }
 
+function createPromptCaptureDeps(telegram: TelegramClient) {
+  const readOnlyEntry = {
+    busy: false,
+    session: {
+      messages: [],
+      prompt: vi.fn(async () => {
+        readOnlyEntry.session.messages.push({ role: "assistant", content: "chat prompt output" });
+      }),
+      getLastAssistantText: vi.fn(() => "chat prompt output"),
+    },
+  };
+  const writableEntry = {
+    busy: false,
+    session: {
+      messages: [],
+      prompt: vi.fn(async () => {
+        writableEntry.session.messages.push({ role: "assistant", content: "apply prompt output" });
+      }),
+      getLastAssistantText: vi.fn(() => "apply prompt output"),
+    },
+  };
+
+  return {
+    readOnlyEntry,
+    writableEntry,
+    deps: {
+      telegram,
+      sessionManager: {
+        abort: vi.fn(async () => false),
+        getSession: vi.fn(async (_chatId: number, writable: boolean) => (writable ? writableEntry : readOnlyEntry)),
+      },
+      tokenProvider: {
+        getToken: vi.fn(async () => "token"),
+        forceRefresh: vi.fn(async () => "token-2"),
+      },
+      createFeatureBranch: vi.fn(async () => "agent/branch"),
+      commitAll: vi.fn(async () => ({ changed: true, summary: "summary" })),
+      pushBranch: vi.fn(async () => {}),
+      createPullRequest: vi.fn(async () => "https://github.com/owner/repo/pull/1"),
+      execCommand: vi.fn(async (_command: string, args: string[]) => {
+        if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { code: 0, stdout: "true\n", stderr: "" };
+        if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
+        if (args[0] === "ls-remote") return { code: 0, stdout: "abc\n", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      }),
+    },
+  };
+}
+
 async function waitForTaskHistoryEntry(sessionDir: string, needle: string): Promise<void> {
   const filePath = path.join(sessionDir, "task-history.json");
   const timeoutMs = 1000;
@@ -1038,6 +1087,88 @@ describe("telegram webhook integration", () => {
 
     expect(continuedTask?.brainstormingEnabled).toBe(false);
     expect(newTask?.brainstormingEnabled).toBe(true);
+  });
+
+  it("injects brainstorming skill content into planning prompts only", async () => {
+    const sessionDir = path.join(os.tmpdir(), `prpilot-brainstorm-prompt-${process.pid}-${Math.random().toString(16).slice(2)}`);
+    const reposRoot = path.join(sessionDir, "repos");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(path.join(repoPath, ".prpilot"), { recursive: true });
+    await fs.writeFile(path.join(repoPath, "AGENTS.md"), "repo rules", "utf8");
+    await fs.writeFile(path.join(repoPath, ".prpilot", "brainstorming-skill.md"), "repo brainstorming instructions", "utf8");
+
+    const telegram = mockTelegram();
+    const { deps, readOnlyEntry, writableEntry } = createPromptCaptureDeps(telegram);
+    const { app } = createApp(testConfig({ sessionDir, reposRoot }), deps as any);
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/brainstorm on"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("plan the rollout"));
+
+    await waitForCondition(() => readOnlyEntry.session.prompt.mock.calls.length > 0);
+    const planningPrompt = readOnlyEntry.session.prompt.mock.calls[0][0] as string;
+    expect(planningPrompt).toContain("Additional planning instructions:");
+    expect(planningPrompt).toContain("repo brainstorming instructions");
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/apply"));
+
+    await waitForCondition(() => writableEntry.session.prompt.mock.calls.length > 0);
+    const applyPrompt = writableEntry.session.prompt.mock.calls[0][0] as string;
+    expect(applyPrompt).not.toContain("Additional planning instructions:");
+    expect(applyPrompt).not.toContain("repo brainstorming instructions");
+
+    const metrics = await renderMetrics();
+    expect(metrics).toContain('prpilot_brainstorm_prompt_injection_total{result="injected"} 1');
+  });
+
+  it("records skipped prompt injection when a brainstorm-enabled task has no extra instructions", async () => {
+    const sessionDir = path.join(os.tmpdir(), `prpilot-brainstorm-prompt-skip-${process.pid}-${Math.random().toString(16).slice(2)}`);
+    const reposRoot = path.join(sessionDir, "repos");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(repoPath, { recursive: true });
+    await fs.writeFile(path.join(repoPath, "AGENTS.md"), "repo rules", "utf8");
+    const legacyHistory = [
+      {
+        repoName: "repo-one",
+        label: "brainstorm task",
+        title: "Brainstorm task",
+        status: "planning",
+        createdAt: new Date().toISOString(),
+        brainstormingEnabled: true,
+        brainstormingSkillSource: "repo",
+      },
+    ];
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, "task-history.json"), JSON.stringify(legacyHistory));
+
+    const telegram = mockTelegram();
+    const { deps, readOnlyEntry } = createPromptCaptureDeps(telegram);
+    const { app } = createApp(testConfig({ sessionDir, reposRoot }), deps as any);
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 1"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("continue the brainstorm task"));
+
+    await waitForCondition(() => readOnlyEntry.session.prompt.mock.calls.length > 0);
+    const planningPrompt = readOnlyEntry.session.prompt.mock.calls[0][0] as string;
+    expect(planningPrompt).not.toContain("Additional planning instructions:");
+
+    const metrics = await renderMetrics();
+    expect(metrics).toContain('prpilot_brainstorm_prompt_injection_total{result="skipped"} 1');
   });
 
   it("records main app http metrics with templated route labels", async () => {
