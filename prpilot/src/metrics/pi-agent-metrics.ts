@@ -8,6 +8,9 @@ type SessionMode = "rw" | "ro";
 type SessionGetCache = "hit" | "miss";
 type SessionAbortResult = "aborted" | "no-active";
 type SessionIndexOp = "read" | "write";
+export type BrainstormToggleState = "on" | "off";
+export type BrainstormSkillSource = "repo" | "global" | "built-in";
+export type BrainstormPromptInjectionResult = "injected" | "skipped";
 
 const piRunsTotal = getOrCreateCounter("pi_runs_total", "Total Pi agent runs", ["mode", "result"]);
 const piRunDurationSeconds = getOrCreateHistogram(
@@ -30,6 +33,21 @@ const piSessionIndexIoErrorsTotal = getOrCreateCounter(
 const piAgentsMdLoadFailuresTotal = getOrCreateCounter(
   "pi_agents_md_load_failures_total",
   "Total failures loading AGENTS.md for Pi runs",
+);
+const brainstormToggleTotal = getOrCreateCounter(
+  "prpilot_brainstorm_toggle_total",
+  "Total brainstorming toggle commands",
+  ["state"],
+);
+const brainstormTasksTotal = getOrCreateCounter(
+  "prpilot_brainstorm_tasks_total",
+  "Total brainstorm-enabled tasks created",
+  ["source"],
+);
+const brainstormPromptInjectionTotal = getOrCreateCounter(
+  "prpilot_brainstorm_prompt_injection_total",
+  "Total brainstorming prompt injection decisions",
+  ["result"],
 );
 
 export function recordPiRun(mode: RunMode, result: PiRunResult, durationSeconds: number): void {
@@ -55,6 +73,18 @@ export function recordPiSessionIndexIoError(op: SessionIndexOp): void {
 
 export function recordPiAgentsMdLoadFailure(): void {
   piAgentsMdLoadFailuresTotal.inc();
+}
+
+export function recordBrainstormToggle(state: BrainstormToggleState): void {
+  brainstormToggleTotal.inc({ state });
+}
+
+export function recordBrainstormTaskCreated(source: BrainstormSkillSource): void {
+  brainstormTasksTotal.inc({ source });
+}
+
+export function recordBrainstormPromptInjection(result: BrainstormPromptInjectionResult): void {
+  brainstormPromptInjectionTotal.inc({ result });
 }
 
 function getOrCreateCounter(name: string, help: string, labelNames: string[] = []): Counter<string> {
