@@ -40,4 +40,32 @@ describe("telegram prompt policy", () => {
       expect(prompt).toContain(line);
     }
   });
+
+  it("includes additional planning instructions when provided", () => {
+    const prompt = buildTelegramAgentPrompt({
+      repoName: "home-ops",
+      agentsInstructions: "repo rules",
+      taskLabel: "User message from Telegram:",
+      task: "find 3 refactors",
+      responseInstruction: "Respond for Telegram. Keep it concise and actionable.",
+      extraInstructions: "Brainstorm before proposing code changes.",
+    });
+
+    expect(prompt).toContain("Additional planning instructions:");
+    expect(prompt).toContain("Brainstorm before proposing code changes.");
+    expect(prompt).toContain("User message from Telegram:");
+    expect(prompt).toContain("Respond for Telegram. Keep it concise and actionable.");
+  });
+
+  it("omits additional planning instructions when not provided", () => {
+    const prompt = buildTelegramAgentPrompt({
+      repoName: "home-ops",
+      agentsInstructions: "repo rules",
+      taskLabel: "User message from Telegram:",
+      task: "find 3 refactors",
+      responseInstruction: "Respond for Telegram. Keep it concise and actionable.",
+    });
+
+    expect(prompt).not.toContain("Additional planning instructions:");
+  });
 });
