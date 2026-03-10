@@ -9,6 +9,7 @@ It is designed for a single authorized Telegram user, multi-repo selection, and 
 - Receives Telegram updates via webhook
 - Supports repository selection per chat (`/repo <name>`)
 - Supports **planning** runs (free-text) in read-only mode — the agent can inspect files but cannot modify the repository
+- Supports one-shot brainstorming mode for the next new planning task (`/brainstorm on`)
 - Supports task selection (`/select <n>`) to continue planning or apply a task
 - Supports **apply** runs (`/apply`) that:
   - create a feature branch
@@ -88,6 +89,9 @@ PRPilot validates both:
 | `/repo` | Show current repo and supported repos |
 | `/repo <name>` | Select repo for this chat |
 | `/status` | Show health, selected repo, branch, active task |
+| `/brainstorm` | Show whether brainstorming is armed for the next new planning task |
+| `/brainstorm on` | Arm brainstorming for the next new planning task |
+| `/brainstorm off` | Clear the armed brainstorming state |
 | `/tasks` | Show recent task list |
 | `/task <n>` | Show detailed task entry |
 | `/select <n>` | Select a planning task to continue or apply |
@@ -112,17 +116,40 @@ Tasks have two primary statuses: **planning** and **applied**.
 Additional terminal statuses: `failed`, `no-changes`, `aborted`.
 
 Task history is capped at 10 entries — older tasks are automatically dropped on save.
+When brainstorming is enabled for a task:
+- `/tasks` adds a compact `🧠 brainstorm` marker
+- `/task <n>` shows whether brainstorming was enabled and the resolved skill source
 
 ## Execution flow
+
+### Brainstorming mode
+
+Brainstorming is **planning-only** and **one-shot**.
+
+1. Select a repo with `/repo <name>`
+2. Run `/brainstorm on`
+3. Send a new free-text planning message
+4. PRPilot resolves brainstorming instructions and injects them into that planning prompt only
+5. The armed state resets automatically after that new task is created
+
+If you continue an already selected planning task, the armed state is **not** consumed.
+Use `/brainstorm off` to clear it manually.
+
+Brainstorming skill resolution order:
+1. Repo override: `<repoPath>/.prpilot/brainstorming-skill.md`
+2. Global fallback: `<SESSION_DIR>/templates/brainstorming-skill.md`
+3. Built-in default skill text
 
 ### Planning run (free-text)
 
 1. Require selected repo (`/repo <name>`)
 2. Reset repo to clean `origin/main`
-3. Run Pi in **read-only** `chat` mode (agent has `read`, `grep`, `find`, `ls`, and `web` tools — `web` runs lynx for internet access)
-4. Create or update task entry in history (if a task is selected via `/select`, the same entry is updated)
-5. Derive a concise task title from the agent response
-6. Reset repo to clean `origin/main`
+3. If brainstorming is armed for a new task, resolve the brainstorming skill using `repo -> global -> built-in`
+4. Run Pi in **read-only** `chat` mode (agent has `read`, `grep`, `find`, `ls`, and `web` tools — `web` runs lynx for internet access)
+5. Inject `Additional planning instructions:` only for brainstorm-enabled planning prompts
+6. Create or update task entry in history (if a task is selected via `/select`, the same entry is updated)
+7. Derive a concise task title from the agent response
+8. Reset repo to clean `origin/main`
 
 ### Apply run (`/apply`)
 
@@ -198,6 +225,9 @@ Pi agent behavior metrics:
 - `pi_sessions_active`
 - `pi_session_index_io_errors_total{op}` (`op`: `read|write`)
 - `pi_agents_md_load_failures_total`
+- `prpilot_brainstorm_toggle_total{state}` (`state`: `on|off`)
+- `prpilot_brainstorm_tasks_total{source}` (`source`: `repo|global|built-in`)
+- `prpilot_brainstorm_prompt_injection_total{result}` (`result`: `injected|skipped`)
 
 ### Suggested alerts (when you add alerting)
 
