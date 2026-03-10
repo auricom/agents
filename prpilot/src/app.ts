@@ -41,6 +41,10 @@ export interface PiRunnerLike {
     task: string,
     repoName: string,
     repoPath: string,
+    options?: {
+      extraInstructions?: string;
+      expectBrainstormPromptInjection?: boolean;
+    },
   ): Promise<string>;
   getLastChatSummary(chatId: number, repoName: string, repoPath: string): Promise<string | null>;
 }
@@ -117,6 +121,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
   const selectedRepoByChatId = new Map<number, string>();
   const selectedTaskByChatId = new Map<number, TaskEntry>();
   const brainstormNextTaskByChatId = new Map<number, boolean>();
+  const brainstormInstructionsByTask = new WeakMap<TaskEntry, string>();
   const lastChatIntentByChatRepo = new Map<string, string>();
   const selectedRepoLoad = loadSelectedRepos(selectedRepoStorePath, cfg.repoNames, selectedRepoByChatId);
   const chatIntentLoad = loadChatIntents(chatIntentStorePath, lastChatIntentByChatRepo);
@@ -555,6 +560,7 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                   let entry = isContinuingSelectedTask
                     ? activeTask!
                     : createTaskEntry(selectedRepo.repoName, command.text, "planning");
+                  let brainstormInstructions: string | undefined;
 
                   if (!isContinuingSelectedTask && brainstormNextTaskByChatId.get(chatId) === true) {
                     const resolvedSkill = await resolveBrainstormingSkill({
@@ -566,6 +572,8 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       brainstormingEnabled: true,
                       brainstormingSkillSource: resolvedSkill.source,
                     };
+                    brainstormInstructions = resolvedSkill.content;
+                    brainstormInstructionsByTask.set(entry, resolvedSkill.content);
                     brainstormNextTaskByChatId.delete(chatId);
                     recordBrainstormTaskCreated(resolvedSkill.source);
                     logger.debug("brainstorming consumed for new task", {
@@ -573,6 +581,8 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       repoName: selectedRepo.repoName,
                       source: resolvedSkill.source,
                     });
+                  } else if (entry.brainstormingEnabled) {
+                    brainstormInstructions = brainstormInstructionsByTask.get(entry);
                   }
 
                   currentTask = entry;
@@ -592,6 +602,10 @@ export function createApp(cfg: AppConfig, depsOverrides: Partial<AppDeps> = {}):
                       command.text,
                       selectedRepo.repoName,
                       selectedRepo.repoPath,
+                      {
+                        extraInstructions: brainstormInstructions,
+                        expectBrainstormPromptInjection: entry.brainstormingEnabled,
+                      },
                     );
                     entry.summary = summarizeTaskText(output);
                     entry.title = deriveConciseTitle(output) || entry.title;

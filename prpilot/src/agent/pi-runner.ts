@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunMode } from "../types.js";
-import { recordPiAgentsMdLoadFailure, recordPiRun, type PiRunResult } from "../metrics/pi-agent-metrics.js";
+import {
+  recordBrainstormPromptInjection,
+  recordPiAgentsMdLoadFailure,
+  recordPiRun,
+  type PiRunResult,
+} from "../metrics/pi-agent-metrics.js";
 import { logger } from "../utils/logger.js";
 import { PiSessionManager } from "./session-manager.js";
 import { buildTelegramAgentPrompt } from "./telegram-prompt-policy.js";
@@ -15,6 +20,10 @@ export class PiRunner {
     task: string,
     repoName: string,
     repoPath: string,
+    options: {
+      extraInstructions?: string;
+      expectBrainstormPromptInjection?: boolean;
+    } = {},
   ): Promise<string> {
     const writable = mode === "apply";
     const startedAtNs = process.hrtime.bigint();
@@ -33,7 +42,7 @@ export class PiRunner {
       }
 
       entry.busy = true;
-      const prompt = await this.buildPrompt(mode, task, repoName, repoPath);
+      const prompt = await this.buildPrompt(mode, task, repoName, repoPath, options);
       logger.debug("pi prompt dispatch", { chatId, mode, promptLength: prompt.length });
       await entry.session.prompt(prompt);
       const output = entry.session.getLastAssistantText();
@@ -73,16 +82,26 @@ export class PiRunner {
     task: string,
     repoName: string,
     repoPath: string,
+    options: {
+      extraInstructions?: string;
+      expectBrainstormPromptInjection?: boolean;
+    },
   ): Promise<string> {
     const agentsInstructions = await this.loadAgentsInstructions(repoPath);
 
     if (mode === "chat") {
+      const extraInstructions = options.extraInstructions?.trim();
+      if (options.expectBrainstormPromptInjection) {
+        recordBrainstormPromptInjection(extraInstructions ? "injected" : "skipped");
+      }
+
       return buildTelegramAgentPrompt({
         repoName,
         agentsInstructions,
         taskLabel: "User message from Telegram:",
         task,
         responseInstruction: "Respond for Telegram. Keep it concise and actionable.",
+        extraInstructions,
       });
     }
 
