@@ -889,6 +889,156 @@ describe("telegram webhook integration", () => {
     );
   });
 
+  it("arms brainstorming for the next new task and shows it in task history", async () => {
+    const sessionDir = path.join(os.tmpdir(), `prpilot-brainstorm-${process.pid}-${Math.random().toString(16).slice(2)}`);
+    const reposRoot = path.join(sessionDir, "repos");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(path.join(repoPath, ".prpilot"), { recursive: true });
+    await fs.writeFile(path.join(repoPath, ".prpilot", "brainstorming-skill.md"), "repo skill", "utf8");
+
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const piRunner = {
+      run: vi.fn(async () => "Brainstormed plan output"),
+      getLastChatSummary: vi.fn(async () => null),
+    };
+    const { app } = createApp(testConfig({ sessionDir, reposRoot }), { telegram, execCommand, piRunner });
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/brainstorm on"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("plan the rollout"));
+
+    await waitForCondition(() => piRunner.run.mock.calls.length > 0);
+    await waitForTaskHistoryEntry(sessionDir, '"brainstormingEnabled": true');
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/tasks"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/task 1"));
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(99, expect.stringContaining("🧠 brainstorm"), "HTML");
+    expect(telegram.sendMessage).toHaveBeenCalledWith(99, expect.stringContaining("🧠 <b>Brainstorming</b>: enabled"), "HTML");
+    expect(telegram.sendMessage).toHaveBeenCalledWith(99, expect.stringContaining("📄 <b>Skill source</b>: repo"), "HTML");
+  });
+
+  it("auto-resets brainstorming after the next new task", async () => {
+    const sessionDir = path.join(os.tmpdir(), `prpilot-brainstorm-reset-${process.pid}-${Math.random().toString(16).slice(2)}`);
+    const reposRoot = path.join(sessionDir, "repos");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(path.join(repoPath, ".prpilot"), { recursive: true });
+    await fs.writeFile(path.join(repoPath, ".prpilot", "brainstorming-skill.md"), "repo skill", "utf8");
+
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const piRunner = {
+      run: vi.fn(async () => "Plan output"),
+      getLastChatSummary: vi.fn(async () => null),
+    };
+    const { app } = createApp(testConfig({ sessionDir, reposRoot }), { telegram, execCommand, piRunner });
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/brainstorm on"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("first brainstormed task"));
+    await waitForCondition(() => piRunner.run.mock.calls.length > 0);
+    await waitForTaskHistoryEntry(sessionDir, '"brainstormingEnabled": true');
+
+    piRunner.run.mockResolvedValueOnce("Second plan output");
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/new"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("second plain task"));
+    await waitForCondition(() => piRunner.run.mock.calls.length > 1);
+
+    const raw = await fs.readFile(path.join(sessionDir, "task-history.json"), "utf8");
+    const history = JSON.parse(raw) as Array<{ label: string; brainstormingEnabled?: boolean }>;
+    const secondTask = history.find((entry) => entry.label === "second plain task");
+    expect(secondTask?.brainstormingEnabled).toBe(false);
+  });
+
+  it("does not consume armed brainstorming while continuing an existing selected task", async () => {
+    const sessionDir = path.join(os.tmpdir(), `prpilot-brainstorm-continue-${process.pid}-${Math.random().toString(16).slice(2)}`);
+    const reposRoot = path.join(sessionDir, "repos");
+    const repoPath = path.join(reposRoot, "repo-one");
+    await fs.mkdir(path.join(repoPath, ".prpilot"), { recursive: true });
+    await fs.writeFile(path.join(repoPath, ".prpilot", "brainstorming-skill.md"), "repo skill", "utf8");
+
+    const telegram = mockTelegram();
+    const execCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        return { code: 0, stdout: "true\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const piRunner = {
+      run: vi.fn(async () => "Initial plan output"),
+      getLastChatSummary: vi.fn(async () => null),
+    };
+    const { app } = createApp(testConfig({ sessionDir, reposRoot }), { telegram, execCommand, piRunner });
+
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/repo repo-one"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("first task"));
+    await waitForCondition(() => piRunner.run.mock.calls.length > 0);
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/select 1"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/brainstorm on"));
+
+    piRunner.run.mockResolvedValueOnce("Continued plan output");
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("continue the same task"));
+    await waitForCondition(() => piRunner.run.mock.calls.length > 1);
+
+    piRunner.run.mockResolvedValueOnce("Brand new task output");
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("/new"));
+    await request(app).post("/telegram/webhook/secret-token")
+      .set("X-Telegram-Bot-Api-Secret-Token", "secret-token")
+      .send(makeUpdate("brand new task"));
+    await waitForCondition(() => piRunner.run.mock.calls.length > 2);
+
+    const raw = await fs.readFile(path.join(sessionDir, "task-history.json"), "utf8");
+    const history = JSON.parse(raw) as Array<{ label: string; brainstormingEnabled?: boolean }>;
+    const continuedTask = history.find((entry) => entry.label === "first task");
+    const newTask = history.find((entry) => entry.label === "brand new task");
+
+    expect(continuedTask?.brainstormingEnabled).toBe(false);
+    expect(newTask?.brainstormingEnabled).toBe(true);
+  });
+
   it("records main app http metrics with templated route labels", async () => {
     const telegram = mockTelegram();
     const { app } = createApp(testConfig(), { telegram });
