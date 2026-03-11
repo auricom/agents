@@ -18,6 +18,7 @@ async function bootstrap(): Promise<void> {
     sessionDir: cfg.sessionDir,
   });
 
+  await fs.mkdir(cfg.reposRoot, { recursive: true });
   await fs.mkdir(cfg.sessionDir, { recursive: true });
 
   const webhookUrl = `${cfg.publicBaseUrl.replace(/\/$/, "")}/telegram/webhook/${cfg.telegramWebhookSecret}`;
