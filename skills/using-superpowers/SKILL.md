@@ -1,112 +1,65 @@
 ---
 name: using-superpowers
-description: Use when starting any conversation - establishes mandatory workflows for finding and using skills, including using Skill tool before announcing usage, following brainstorming before coding, and creating TodoWrite todos for checklists
+description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions
 ---
 
+<SUBAGENT-STOP>
+If you were dispatched as a subagent to execute a specific task, ignore this skill.
+</SUBAGENT-STOP>
+
 <EXTREMELY-IMPORTANT>
-If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST read the skill.
+If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.
 
 IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
 
-This is not negotiable. This is not optional. You cannot rationalize your way out of this.
+This is not negotiable. You cannot rationalize your way out of this.
 </EXTREMELY-IMPORTANT>
 
-# Getting Started with Skills
+## The Rule
 
-## MANDATORY FIRST RESPONSE PROTOCOL
+**Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.
 
-Before responding to ANY user message, you MUST complete this checklist:
+**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.
 
-- [ ] List available skills in your mind
-- [ ] Ask yourself: "Does ANY skill match this request?"
-- [ ] If yes → Use the Skill tool to read and run the skill file
-- [ ] Announce which skill you're using
-- [ ] Follow the skill exactly
+Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it has a checklist, create a todo per item.
 
-**Responding WITHOUT completing this checklist = automatic failure.**
+## Skill Priority
 
-## Finding Skills
+When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are Superpowers' most common process skills, but the rule holds for any of them.
 
-- `skill_find [topic]` → Lists relevant skills for the topic
-  - `skill_find debugging, other topic` → Lists debugging skills and skills for other topic
-  - `skill_find marketing, -online` → Lists marketing skills excluding online marketing skills
-- `skill_use [skill name]` → Reads and runs the specified skill
-- `skill_resource [skill name] [relative/path]` → Accesses a resource file within the specified skill
+- "Let's build X" → superpowers:brainstorming first, then implementation skills.
+- "Fix this bug" → superpowers:systematic-debugging first, then domain skills.
 
-## Critical Rules
+## Red Flags
 
-1. **Follow mandatory workflows.** Brainstorming before coding. Check for relevant skills before ANY task.
+These thoughts mean STOP—you're rationalizing:
 
-2. Execute skills with the Skill tool
+| Thought | Reality |
+|---------|---------|
+| "This is just a simple question" | Questions are tasks. Check for skills. |
+| "I need more context first" | Skill check comes BEFORE clarifying questions. |
+| "Let me explore the codebase first" | Skills tell you HOW to explore. Check first. |
+| "I can check git/files quickly" | Files lack conversation context. Check for skills. |
+| "Let me gather information first" | Skills tell you HOW to gather information. |
+| "This doesn't need a formal skill" | If a skill exists, use it. |
+| "I remember this skill" | Skills evolve. Read current version. |
+| "This doesn't count as a task" | Action = task. Check for skills. |
+| "The skill is overkill" | Simple things become complex. Use it. |
+| "I'll just do this one thing first" | Check BEFORE doing anything. |
+| "This feels productive" | Undisciplined action wastes time. Skills prevent this. |
+| "I know what that means" | Knowing the concept ≠ using the skill. Invoke it. |
 
-## Common Rationalizations That Mean You're About To Fail
+## Platform Adaptation
 
-If you catch yourself thinking ANY of these thoughts, STOP. You are rationalizing. Check for and use the skill.
+If your harness appears here, read its reference file for special instructions:
 
-- "This is just a simple question" → WRONG. Questions are tasks. Check for skills.
-- "I can check git/files quickly" → WRONG. Files don't have conversation context. Check for skills.
-- "Let me gather information first" → WRONG. Skills tell you HOW to gather information. Check for skills.
-- "This doesn't need a formal skill" → WRONG. If a skill exists for it, use it.
-- "I remember this skill" → WRONG. Skills evolve. Run the current version.
-- "This doesn't count as a task" → WRONG. If you're taking action, it's a task. Check for skills.
-- "The skill is overkill for this" → WRONG. Skills exist because simple things become complex. Use it.
-- "I'll just do this one thing first" → WRONG. Check for skills BEFORE doing anything.
+- Claude Code: `references/claude-code-tools.md`
+- Codex: `references/codex-tools.md`
+- Pi: `references/pi-tools.md`
+- Antigravity: `references/antigravity-tools.md`
+- Hermes Agent: `references/hermes-tools.md`
+- Muse: `references/muse-tools.md`
 
-**Why:** Skills document proven techniques that save time and prevent mistakes. Not using available skills means repeating solved problems and making known errors.
+## User Instructions
 
-If a skill for your task exists, you must use it or you will fail at your task.
-
-## Skills with Checklists
-
-If a skill has a checklist, YOU MUST create TodoWrite todos for EACH item.
-
-**Don't:**
-
-- Work through checklist mentally
-- Skip creating todos "to save time"
-- Batch multiple items into one todo
-- Mark complete without doing them
-
-**Why:** Checklists without TodoWrite tracking = steps get skipped. Every time. The overhead of TodoWrite is tiny compared to the cost of missing steps.
-
-## Announcing Skill Usage
-
-Before using a skill, announce that you are using it.
-"I'm using [Skill Name] to [what you're doing]."
-
-**Examples:**
-
-- "I'm using the brainstorming skill to refine your idea into a design."
-- "I'm using the test-driven-development skill to implement this feature."
-
-**Why:** Transparency helps your human partner understand your process and catch errors early. It also confirms you actually read the skill.
-
-# About these skills
-
-**Many skills contain rigid rules (TDD, debugging, verification).** Follow them exactly. Don't adapt away the discipline.
-
-**Some skills are flexible patterns (architecture, naming).** Adapt core principles to your context.
-
-The skill itself tells you which type it is.
-
-## Instructions ≠ Permission to Skip Workflows
-
-Your human partner's specific instructions describe WHAT to do, not HOW.
-
-"Add X", "Fix Y" = the goal, NOT permission to skip brainstorming, TDD, or RED-GREEN-REFACTOR.
-
-**Failure flags:** "Instruction was specific" • "Seems simple" • "Workflow is overkill"
-
-**Why:** Specific instructions mean clear requirements, which is when workflows matter MOST. Skipping process on "simple" tasks is how simple tasks become complex problems.
-
-## Summary
-
-**Starting any task:**
-
-1. If relevant skill exists → Use the skill
-2. Announce you're using it
-3. Follow what it says
-
-**Skill has checklist?** TodoWrite for every item.
-
-**Finding a relevant skill = mandatory to read and use it. Not optional.**
+User instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.

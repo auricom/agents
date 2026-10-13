@@ -64,3 +64,6 @@ env/
 
 # Pi
 .pi/*stats.json
+
+# Claude Code account-synced skills (written via ~/.claude/skills -> skills/)
+skills/synced/

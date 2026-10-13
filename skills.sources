@@ -1,0 +1,5 @@
+# Third-party skills vendored into skills/. Refresh with `just skills-update`.
+# name        repo                      path-in-repo        ref
+caveman       JuliusBrussee/caveman     skills/caveman      main
+ponytail      DietrichGebert/ponytail   skills/ponytail     main
+using-superpowers  obra/superpowers     skills/using-superpowers  main
