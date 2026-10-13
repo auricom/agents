@@ -67,3 +67,6 @@ env/
 
 # Claude Code account-synced skills (written via ~/.claude/skills -> skills/)
 skills/synced/
+
+# Zed skills
+skills/zed*
