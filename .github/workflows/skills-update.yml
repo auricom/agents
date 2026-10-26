@@ -1,0 +1,36 @@
+name: skills-update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: skills-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update skills
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/update-skills.sh
+
+      - name: Commit and push
+        run: |
+          if [ -z "$(git status --porcelain -- skills skills.lock)" ]; then
+            echo "No skill updates."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A skills skills.lock
+          git commit -m "chore: update vendored skills"
+          git push
