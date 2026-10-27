@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Download skills listed in skills.sources into skills/<name>, pinning resolved commits in skills.lock.
+# The lock entry only moves when the vendored files actually change, so upstream commits elsewhere
+# in the repo cause no diff.
 # Usage: update-skills.sh [name...]   (no args = all)
 set -euo pipefail
 
@@ -43,6 +45,12 @@ while read -r name repo path ref; do
         curl -fsSL --create-dirs -o "$src/${f#"$path"/}" "https://raw.githubusercontent.com/$repo/$sha/$f"
       done
   [[ -f "$src/SKILL.md" ]] || { echo "error: $repo/$path has no SKILL.md" >&2; exit 1; }
+
+  # Upstream HEAD moved but the vendored path did not: leave files and lock alone.
+  if diff -rq "$src" "$root/skills/$name" >/dev/null 2>&1; then
+    echo "$name: content unchanged (${sha:0:7})"
+    continue
+  fi
 
   rm -rf "$root/skills/$name"
   mv "$src" "$root/skills/$name"
